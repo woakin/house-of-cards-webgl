@@ -24,5 +24,6 @@ dist-ssr
 *.sw?
 
 # Raw Datasets and Binaries
-data/
 public/data/frames.bin
+public/data/frames.bin.gz
+data/*.zip

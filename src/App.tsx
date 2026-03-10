@@ -129,7 +129,7 @@ function App() {
   const [isCopied, setIsCopied] = useState(false);
 
   const handleCopyLink = useCallback(() => {
-    navigator.clipboard.writeText(window.location.href);
+    navigator.clipboard.writeText('https://github.com/woakin/house-of-cards-webgl');
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   }, []);
@@ -331,7 +331,7 @@ function App() {
                   </ul>
                   
                   <div className="share-section">
-                    <input type="text" readOnly value={window.location.href} className="share-input" />
+                    <input type="text" readOnly value="https://github.com/woakin/house-of-cards-webgl" className="share-input" />
                     <button className="copy-button" onClick={handleCopyLink}>{isCopied ? 'COPIED!' : 'COPY LINK'}</button>
                   </div>
                 </div>
