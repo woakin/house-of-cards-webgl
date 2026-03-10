@@ -23,26 +23,26 @@ This project renders the raw LiDAR data captured during the filming of Radiohead
 All the raw Lidar data (`.csv` files) is included in this repository inside the `data/` folder. However, before running the project, you must compile them into an optimized binary format using the provided script.
 
 ### 1. Clone the repository
-\`\`\`bash
+```bash
 git clone https://github.com/woakin/house-of-cards-webgl.git
 cd house-of-cards-webgl
 npm install
-\`\`\`
+```
 
 ### 2. Convert Data to Binary
 We use a custom Node.js script to parse the thousands of CSV files and pack them into a single, highly-optimized `Float32` binary buffer (`frames.bin`).
 
 Run the conversion script:
-\`\`\`bash
+```bash
 node scripts/convert.js
-\`\`\`
+```
 *This process may take a minute. It will output `public/data/frames.bin` (~390MB).*
 
 ### 3. Run the Development Server
 Once the binary file is generated, you can start the local Vite server:
-\`\`\`bash
+```bash
 npm run dev
-\`\`\`
+```
 Open [http://localhost:3000](http://localhost:3000) in your browser to experience the visualization!
 
 ## Controls
@@ -53,4 +53,4 @@ Open [http://localhost:3000](http://localhost:3000) in your browser to experienc
 - **R:** Reset camera view
 
 ## License
-Code is provided as-is. The original LiDAR data and audio track belong to Radiohead / DataArts.
+Code is provided as-is. The original LiDAR data and audio track belong to Radiohead / [DataArts](https://github.com/dataarts/radiohead).
