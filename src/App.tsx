@@ -153,7 +153,7 @@ function App() {
   const [isCopied, setIsCopied] = useState(false);
 
   const handleCopyLink = useCallback(() => {
-    navigator.clipboard.writeText('https://house-of-cards.woakin.com/');
+    navigator.clipboard.writeText(window.location.origin + '/');
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   }, []);
@@ -529,16 +529,17 @@ function App() {
                     In 2008, Radiohead released the music video for "House of Cards", famously created entirely without cameras using Geometric Informatics and Velodyne LIDAR systems to capture 3D spatial data. 
                   </p>
                   <p>
-                    This project evolves the original <a href="https://github.com/dataarts/radiohead" target="_blank" rel="noreferrer">DataArts</a> C++ code into a modern WebGL experience, heavily optimized for the web:
+                    This project evolves the original <a href="https://github.com/dataarts/radiohead" target="_blank" rel="noreferrer">DataArts</a> C++ code into a modern WebGL experience, heavily optimized for high-performance web streaming:
                   </p>
                   <ul className="tech-list">
-                    <li><strong>Data Architecture:</strong> Over 2,100 raw CSV point-cloud frames were parsed via a custom Node.js pipeline and compiled into a single heavily optimized 410MB Binary ArrayBuffer, enabling instant streaming in the browser.</li>
-                    <li><strong>GPU-Accelerated Rendering:</strong> Built with React Three Fiber, the engine preallocates a static geometry matrix and iteratively streams the raw byte-data into a custom WebGL Shader Material operating at 60 FPS.</li>
-                    <li><strong>Dynamic Depth Shading:</strong> The classic monochrome data is enriched via a custom vertex and fragment shader. A mathematical clamping algorithm perfectly maps the raw LIDAR Z-depth (ranging specifically from -250 to -50 units) to a real-time, user-customizable interpolating color gradient.</li>
+                    <li><strong>Chunked Binary Pipeline:</strong> Over 2,100 raw CSV point-cloud frames were compiled into a chunked binary pipeline with parallel streaming, enabling instant playback without downloading the entire dataset upfront.</li>
+                    <li><strong>GPU & TypedArray Engine:</strong> Built with React Three Fiber and custom WebGL Shader Materials, the engine unpacks binary frame buffers directly via zero-copy TypedArrays (&lt;0.8ms per frame) to maintain 60 FPS.</li>
+                    <li><strong>Dynamic Depth & Effects:</strong> Raw LIDAR Z-depth is mapped to real-time customizable tri-color gradients, enriched with bloom glow, chromatic aberration glitch effects, and 3D Stanford .PLY frame exporting.</li>
+                    <li><strong>Adaptive Cross-Platform UI:</strong> Features native touch orbit controls, adaptive device pixel scaling (DPR), a collapsible color palette, and a responsive drawer HUD optimized for mobile and desktop.</li>
                   </ul>
                   
                   <div className="share-section">
-                    <input type="text" readOnly value="https://house-of-cards.woakin.com/" className="share-input" />
+                    <input type="text" readOnly value={window.location.origin + '/'} className="share-input" />
                     <button className="copy-button" onClick={handleCopyLink}>{isCopied ? 'COPIED!' : 'COPY LINK'}</button>
                   </div>
                 </div>

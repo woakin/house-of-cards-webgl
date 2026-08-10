@@ -147,14 +147,14 @@ html, body, #root {
   display: contents;
 }
 
-.controls > button {
+.controls button {
   flex-shrink: 0;
   white-space: nowrap;
   box-sizing: border-box;
-  height: 40px;
-  border-radius: 20px;
+  height: 42px;
+  border-radius: 21px;
   font-family: inherit;
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   font-weight: 600;
   letter-spacing: 0.8px;
   cursor: pointer;
@@ -165,9 +165,10 @@ html, body, #root {
 }
 
 .play-button {
+  order: 1;
   background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
   border: none;
-  padding: 0 1.5rem;
+  padding: 0 1.6rem;
   color: #050510;
   font-weight: 700;
   box-shadow: 0 4px 15px rgba(0, 242, 254, 0.35);
@@ -181,9 +182,17 @@ html, body, #root {
 .toggle-btn {
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  padding: 0 1.2rem;
+  padding: 0 1.3rem;
   color: rgba(255, 255, 255, 0.7);
   gap: 0.5rem;
+}
+
+.secondary-row > .toggle-btn:nth-child(1) {
+  order: 2;
+}
+
+.secondary-row > .toggle-btn:nth-child(2) {
+  order: 3;
 }
 
 .toggle-btn .status-dot {
@@ -212,9 +221,10 @@ html, body, #root {
 }
 
 .export-button {
+  order: 4;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  padding: 0 1.2rem;
+  padding: 0 1.3rem;
   color: rgba(255, 255, 255, 0.85);
 }
 
@@ -225,9 +235,10 @@ html, body, #root {
 }
 
 .control-button {
+  order: 5;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  padding: 0 1.2rem;
+  padding: 0 1.3rem;
   color: rgba(255, 255, 255, 0.85);
 }
 
@@ -235,54 +246,6 @@ html, body, #root {
   background: rgba(255, 255, 255, 0.14);
   border-color: rgba(255, 255, 255, 0.3);
   color: #ffffff;
-}
-
-.toggle-btn .status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.3);
-  transition: all 0.3s ease;
-}
-
-.toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.8);
-  transform: translateY(-2px);
-}
-
-.toggle-btn.active {
-  background: rgba(0, 242, 254, 0.15);
-  border-color: rgba(0, 242, 254, 0.6);
-  color: #ffffff;
-  font-weight: 600;
-  box-shadow: 0 0 15px rgba(0, 242, 254, 0.25);
-}
-
-.toggle-btn.active .status-dot {
-  background: #00ffcc;
-  box-shadow: 0 0 8px #00ffcc, 0 0 12px #00ffcc;
-}
-
-.export-button {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-  border: none;
-  border-radius: 30px;
-  padding: 0.8rem 1.5rem;
-  color: white;
-  font-family: inherit;
-  font-weight: 600;
-  font-size: 0.9rem;
-  letter-spacing: 1px;
-  cursor: pointer;
-  white-space: nowrap;
-  box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
-  transition: all 0.3s ease;
-}
-
-.export-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(245, 87, 108, 0.6);
 }
 
 .control-button:active {
