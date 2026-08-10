@@ -1,0 +1,64 @@
+{
+  "source": "frames_quantized.bin",
+  "totalSize": 204880764,
+  "chunkCount": 14,
+  "chunks": [
+    {
+      "file": "/data/chunks/frame_chunk_00.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_01.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_02.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_03.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_04.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_05.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_06.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_07.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_08.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_09.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_10.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_11.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_12.bin",
+      "size": 15728640
+    },
+    {
+      "file": "/data/chunks/frame_chunk_13.bin",
+      "size": 408444
+    }
+  ],
+  "generatedAt": "2026-08-10T03:05:29.475Z"
+}

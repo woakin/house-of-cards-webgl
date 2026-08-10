@@ -138,7 +138,41 @@ function App() {
     // Load the binary data
     const loadData = async () => {
       try {
-        const response = await fetch('/data/frames.bin');
+        // Try loading chunked manifest first (for Cloudflare Pages & high performance CDN)
+        const manifestRes = await fetch('/data/chunks/manifest.json');
+        if (manifestRes.ok) {
+          const manifest = await manifestRes.json();
+          const totalSize = manifest.totalSize || 0;
+          let loaded = 0;
+          const chunkBuffers: ArrayBuffer[] = [];
+
+          for (const chunkInfo of manifest.chunks) {
+            const chunkRes = await fetch(chunkInfo.file);
+            if (!chunkRes.ok) throw new Error(`Failed to load chunk ${chunkInfo.file}`);
+            const buf = await chunkRes.arrayBuffer();
+            chunkBuffers.push(buf);
+            loaded += buf.byteLength;
+            if (totalSize > 0) {
+              setLoadingProgress(Math.round((loaded / totalSize) * 100));
+            }
+          }
+
+          const combined = new Uint8Array(loaded);
+          let pos = 0;
+          for (const buf of chunkBuffers) {
+            combined.set(new Uint8Array(buf), pos);
+            pos += buf.byteLength;
+          }
+
+          setDataBuffer(combined.buffer);
+          return;
+        }
+
+        // Fallback for single raw binary file
+        let response = await fetch('/data/frames_quantized.bin');
+        if (!response.ok) {
+          response = await fetch('/data/frames.bin');
+        }
         const contentLength = response.headers.get('content-length');
         const total = contentLength ? parseInt(contentLength, 10) : 0;
         
@@ -171,7 +205,7 @@ function App() {
         
         setDataBuffer(combined.buffer);
       } catch (err) {
-        console.error('Failed to load frames.bin', err);
+        console.error('Failed to load frames data', err);
       }
     };
     

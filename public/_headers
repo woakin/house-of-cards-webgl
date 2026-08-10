@@ -1,0 +1,15 @@
+# Cloudflare Headers Configuration
+
+# Cache static binary chunks and audio files for 1 year immutable
+/data/*
+  Cache-Control: public, max-age=31536000, immutable
+  Access-Control-Allow-Origin: *
+
+# Cache static JS, CSS, images
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+  Access-Control-Allow-Origin: *
+
+# HTML documents short cache
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate

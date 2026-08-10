@@ -7,7 +7,13 @@ const MAX_POINTS = 20000; // Pre-allocate buffer
 
 interface FrameData {
   numPoints: number;
-  offset: number; // offset in floats (stride of 4)
+  byteOffset: number;
+  floatOffset?: number;
+  headerOffset?: number;
+}
+
+interface QuantMetadata {
+  isQuantized: boolean;
 }
 
 export function PointCloudViewer({ 
@@ -27,29 +33,54 @@ export function PointCloudViewer({
   // Parse the binary header to index the frames
   const [frames, setFrames] = useState<FrameData[]>([]);
   const [floatData, setFloatData] = useState<Float32Array | null>(null);
+  const [quantMeta, setQuantMeta] = useState<QuantMetadata | null>(null);
   
   useEffect(() => {
     if (!dataBuffer) return;
     
     console.time('parse_binary');
-    const headerView = new Uint32Array(dataBuffer, 0, 1);
-    const numFrames = headerView[0];
-    
-    let byteOffset = 4;
-    const parsedFrames: FrameData[] = [];
     const dataview = new DataView(dataBuffer);
-    
-    for (let i = 0; i < numFrames; i++) {
-      const numPoints = dataview.getUint32(byteOffset, true);
-      parsedFrames.push({
-        numPoints,
-        offset: (byteOffset + 4) / 4 // position in Float32Array
-      });
-      byteOffset += 4 + numPoints * 16; // 4 floats per point (16 bytes)
+    const magicView = new Uint8Array(dataBuffer, 0, 4);
+    const isQuant = magicView[0] === 0x48 && magicView[1] === 0x4F && magicView[2] === 0x43 && magicView[3] === 0x51; // 'HOCQ'
+
+    if (isQuant) {
+      const numFrames = dataview.getUint32(4, true);
+      setQuantMeta({ isQuantized: true });
+
+      let byteOffset = 8;
+      const parsedFrames: FrameData[] = [];
+      for (let i = 0; i < numFrames; i++) {
+        const numPoints = dataview.getUint32(byteOffset, true);
+        parsedFrames.push({
+          numPoints,
+          byteOffset: byteOffset + 28,
+          headerOffset: byteOffset + 4,
+        });
+        byteOffset += 28 + numPoints * 8;
+      }
+      setFrames(parsedFrames);
+    } else {
+      setQuantMeta(null);
+      const headerView = new Uint32Array(dataBuffer, 0, 1);
+      const numFrames = headerView[0];
+      
+      let byteOffset = 4;
+      const parsedFrames: FrameData[] = [];
+      
+      for (let i = 0; i < numFrames; i++) {
+        const numPoints = dataview.getUint32(byteOffset, true);
+        parsedFrames.push({
+          numPoints,
+          byteOffset: byteOffset + 4,
+          floatOffset: (byteOffset + 4) / 4
+        });
+        byteOffset += 4 + numPoints * 16;
+      }
+      
+      setFrames(parsedFrames);
+      setFloatData(new Float32Array(dataBuffer));
     }
     
-    setFrames(parsedFrames);
-    setFloatData(new Float32Array(dataBuffer));
     console.timeEnd('parse_binary');
   }, [dataBuffer]);
 
@@ -64,7 +95,7 @@ export function PointCloudViewer({
   const [currentFrame, setCurrentFrame] = useState(-1);
 
   useFrame(() => {
-    if (!audioRef.current || frames.length === 0 || !floatData) return;
+    if (!audioRef.current || frames.length === 0 || !dataBuffer) return;
     
     const time = (!isPlaying && audioRef.current.currentTime === 0) 
       ? 14.0 
@@ -77,25 +108,56 @@ export function PointCloudViewer({
     }
     
     if (targetFrame !== currentFrame) {
-      const frameStart = frames[targetFrame].offset;
-      const numPoints = frames[targetFrame].numPoints;
+      const frame = frames[targetFrame];
+      const numPoints = frame.numPoints;
       
-      // Update attributes
-      let pointIdx = 0;
-      for (let i = 0; i < numPoints; i++) {
-        const floatIdx = frameStart + i * 4;
+      if (quantMeta && quantMeta.isQuantized && frame.headerOffset !== undefined) {
+        const dataview = new DataView(dataBuffer);
+        const hOffset = frame.headerOffset;
         
-        // eslint-disable-next-line
-        positions[pointIdx * 3] = floatData[floatIdx];
-        // eslint-disable-next-line
-        positions[pointIdx * 3 + 1] = floatData[floatIdx + 1];
-        // eslint-disable-next-line
-        positions[pointIdx * 3 + 2] = floatData[floatIdx + 2];
+        const frameMinX = dataview.getFloat32(hOffset, true);
+        const frameMaxX = dataview.getFloat32(hOffset + 4, true);
+        const frameMinY = dataview.getFloat32(hOffset + 8, true);
+        const frameMaxY = dataview.getFloat32(hOffset + 12, true);
+        const frameMinZ = dataview.getFloat32(hOffset + 16, true);
+        const frameMaxZ = dataview.getFloat32(hOffset + 20, true);
         
-        // eslint-disable-next-line
-        intensities[pointIdx] = floatData[floatIdx + 3];
+        const rangeX = frameMaxX - frameMinX || 1;
+        const rangeY = frameMaxY - frameMinY || 1;
+        const rangeZ = frameMaxZ - frameMinZ || 1;
         
-        pointIdx++;
+        const pointsStart = frame.byteOffset;
+
+        let pointIdx = 0;
+        for (let i = 0; i < numPoints; i++) {
+          const pOffset = pointsStart + i * 8;
+          const qX = dataview.getUint16(pOffset, true);
+          const qY = dataview.getUint16(pOffset + 2, true);
+          const qZ = dataview.getUint16(pOffset + 4, true);
+          const intensity = dataview.getUint8(pOffset + 6);
+
+          positions[pointIdx * 3] = frameMinX + (qX / 65535) * rangeX;
+          positions[pointIdx * 3 + 1] = frameMinY + (qY / 65535) * rangeY;
+          positions[pointIdx * 3 + 2] = frameMinZ + (qZ / 65535) * rangeZ;
+
+          intensities[pointIdx] = intensity;
+
+          pointIdx++;
+        }
+      } else if (floatData && frame.floatOffset !== undefined) {
+        const frameStart = frame.floatOffset;
+        let pointIdx = 0;
+        for (let i = 0; i < numPoints; i++) {
+          const floatIdx = frameStart + i * 4;
+          
+          positions[pointIdx * 3] = floatData[floatIdx];
+          positions[pointIdx * 3 + 1] = floatData[floatIdx + 1];
+          positions[pointIdx * 3 + 2] = floatData[floatIdx + 2];
+          
+          intensities[pointIdx] = floatData[floatIdx + 3];
+          
+          pointIdx++;
+        }
       }
       
       if (geomRef.current) {

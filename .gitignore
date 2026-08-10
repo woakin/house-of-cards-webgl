@@ -23,7 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 
-# Raw Datasets and Binaries
-public/data/frames.bin
-public/data/frames.bin.gz
+# Raw Datasets and Single Large Binaries (>25MB Cloudflare limit)
+public/data/*.bin
+public/data/*.bin.br
+public/data/*.bin.gz
+!public/data/chunks/*.bin
 data/*.zip
