@@ -32,13 +32,14 @@ export function exportToPLY({ positions, intensities, numPoints, colors, frameIn
     'end_header',
   ].join('\n');
 
-  const lines: string[] = [header];
   const mixColor = new THREE.Color();
+  const chunkParts: string[] = [header + '\n'];
+  let currentChunk = '';
 
   for (let i = 0; i < numPoints; i++) {
-    const x = positions[i * 3].toFixed(4);
-    const y = positions[i * 3 + 1].toFixed(4);
-    const z = positions[i * 3 + 2].toFixed(4);
+    const px = Math.round(positions[i * 3] * 10000) / 10000;
+    const py = Math.round(positions[i * 3 + 1] * 10000) / 10000;
+    const pz = Math.round(positions[i * 3 + 2] * 10000) / 10000;
     const rawZ = positions[i * 3 + 2];
     const intensity = intensities[i] || 0;
     const normalizedInt = Math.min(1.0, Math.max(0.0, intensity / 40.0));
@@ -56,11 +57,17 @@ export function exportToPLY({ positions, intensities, numPoints, colors, frameIn
     const g = Math.min(255, Math.max(0, Math.round(mixColor.g * brightness * 255)));
     const b = Math.min(255, Math.max(0, Math.round(mixColor.b * brightness * 255)));
 
-    lines.push(`${x} ${y} ${z} ${r} ${g} ${b}`);
+    currentChunk += `${px} ${py} ${pz} ${r} ${g} ${b}\n`;
+    if (i % 2000 === 0 && i > 0) {
+      chunkParts.push(currentChunk);
+      currentChunk = '';
+    }
+  }
+  if (currentChunk) {
+    chunkParts.push(currentChunk);
   }
 
-  const plyContent = lines.join('\n');
-  const blob = new Blob([plyContent], { type: 'text/plain;charset=utf-8' });
+  const blob = new Blob(chunkParts, { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
 
   const link = document.createElement('a');

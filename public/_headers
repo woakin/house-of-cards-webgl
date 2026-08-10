@@ -4,6 +4,11 @@
 /*
   Access-Control-Allow-Origin: *
 
+# Manifest file MUST revalidate immediately upon deploy
+/data/chunks/manifest.json
+  Cache-Control: public, max-age=0, must-revalidate
+  Access-Control-Allow-Origin: *
+
 # Cache static binary chunks and audio files for 1 year immutable
 /data/*
   Cache-Control: public, max-age=31536000, immutable

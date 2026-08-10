@@ -11,15 +11,18 @@ import './index.css';
 
 function CameraMovement({ controlsRef }: { controlsRef: React.RefObject<OrbitControlsImpl | null> }) {
   const keys = useRef<{ [key: string]: boolean }>({});
+  const offsetVector = useRef(new THREE.Vector3());
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => { 
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.code.startsWith('Arrow') || e.code === 'KeyW' || e.code === 'KeyS') {
         e.preventDefault();
         keys.current[e.code] = true; 
       }
     };
     const onKeyUp = (e: KeyboardEvent) => { 
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.code.startsWith('Arrow') || e.code === 'KeyW' || e.code === 'KeyS') {
         e.preventDefault();
         keys.current[e.code] = false; 
@@ -42,7 +45,8 @@ function CameraMovement({ controlsRef }: { controlsRef: React.RefObject<OrbitCon
     
     // FPS-like fluid movement: 500 units per second
     const speed = 500 * delta; 
-    const offset = new THREE.Vector3();
+    const offset = offsetVector.current;
+    offset.set(0, 0, 0);
     
     if (keys.current['ArrowLeft']) offset.x -= 1;
     if (keys.current['ArrowRight']) offset.x += 1;
@@ -83,6 +87,16 @@ function App() {
     colorB: '#00f2fe', // Mid
     colorC: '#f093fb'  // Foreground / Close
   });
+  const [isColorExpanded, setIsColorExpanded] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const [isIdle, setIsIdle] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -156,28 +170,45 @@ function App() {
     });
   }, [colors]);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+
   useEffect(() => {
     // Load the binary data
     const loadData = async () => {
+      setLoadError(null);
+      setLoadingProgress(0);
+
       try {
         // Try loading chunked manifest first (for Cloudflare Pages & high performance CDN)
         const manifestRes = await fetch('/data/chunks/manifest.json');
         if (manifestRes.ok) {
           const manifest = await manifestRes.json();
           const totalSize = manifest.totalSize || 0;
-          let loaded = 0;
+          const chunkProgress = new Array(manifest.chunks.length).fill(0);
+
+          const updateProgress = () => {
+            if (totalSize > 0) {
+              const currentTotal = chunkProgress.reduce((sum, val) => sum + val, 0);
+              setLoadingProgress(Math.min(100, Math.round((currentTotal / totalSize) * 100)));
+            }
+          };
+
           const chunkBuffers = await Promise.all(
-            manifest.chunks.map(async (chunkInfo: { file: string }) => {
+            manifest.chunks.map(async (chunkInfo: { file: string; size?: number }, idx: number) => {
               const chunkRes = await fetch(chunkInfo.file);
-              if (!chunkRes.ok) throw new Error(`Failed to load chunk ${chunkInfo.file}`);
+              if (!chunkRes.ok) throw new Error(`Failed to load data chunk: ${chunkInfo.file}`);
               const buf = await chunkRes.arrayBuffer();
-              loaded += buf.byteLength;
-              if (totalSize > 0) {
-                setLoadingProgress(prev => Math.min(100, prev + Math.round((buf.byteLength / totalSize) * 100)));
-              }
+              chunkProgress[idx] = buf.byteLength;
+              updateProgress();
               return buf;
             })
           );
+
+          let loaded = 0;
+          for (const buf of chunkBuffers) {
+            loaded += buf.byteLength;
+          }
 
           const combined = new Uint8Array(loaded);
           let pos = 0;
@@ -197,12 +228,15 @@ function App() {
         if (!response.ok) {
           response = await fetch('/data/frames.bin');
         }
+        if (!response.ok) {
+          throw new Error(`Data server error (${response.status}): Failed to locate binary frames`);
+        }
+
         const contentLength = response.headers.get('content-length');
         const total = contentLength ? parseInt(contentLength, 10) : 0;
-        
         let loaded = 0;
         
-        if (!response.body) return;
+        if (!response.body) throw new Error('ReadableStream not supported by browser');
         
         const reader = response.body.getReader();
         const chunks = [];
@@ -229,13 +263,14 @@ function App() {
         
         chunks.length = 0;
         setDataBuffer(combined.buffer);
-      } catch (err) {
-        console.error('Failed to load frames data', err);
+      } catch (err: any) {
+        console.error('Failed to load frames data:', err);
+        setLoadError(err?.message || 'Failed to connect to data server. Please check your network connection.');
       }
     };
     
     loadData();
-  }, []);
+  }, [retryCount]);
 
   const togglePlay = useCallback(() => {
     if (audioRef.current) {
@@ -291,24 +326,37 @@ function App() {
       <audio 
         ref={audioRef} 
         src="/data/HouseOfCards_DataSample.mp3" 
+        preload="auto"
         onEnded={() => setIsPlaying(false)}
         loop
       />
       
       {!dataBuffer ? (
         <div className="loading-screen">
-          <h1>Loading Data... {loadingProgress}%</h1>
-          <div className="progress-bar">
-            <div className="progress-fill" style={{ width: `${loadingProgress}%` }} />
-          </div>
+          {loadError ? (
+            <div className="error-container">
+              <h2>Data Server Connection Error</h2>
+              <p>{loadError}</p>
+              <button className="retry-button" onClick={() => setRetryCount(c => c + 1)}>
+                RETRY CONNECTION
+              </button>
+            </div>
+          ) : (
+            <>
+              <h1>Loading Data... {loadingProgress}%</h1>
+              <div className="progress-bar">
+                <div className="progress-fill" style={{ width: `${loadingProgress}%` }} />
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <>
           <Canvas 
             camera={{ position: [0, 0, 500], fov: 60 }}
-            dpr={[1, 2]}
+            dpr={isMobile ? 1 : [1, 2]}
             gl={{ powerPreference: 'high-performance', antialias: false }}
-            style={{ width: '100vw', height: '100vh', background: '#000000' }}
+            style={{ width: '100%', height: '100%', background: '#000000' }}
           >
             <color attach="background" args={['#000000']} />
             <ambientLight intensity={0.5} />
@@ -336,10 +384,10 @@ function App() {
             <CameraMovement controlsRef={controlsRef} />
 
             {(glowEnabled || glitchEnabled) && (
-              <EffectComposer multisampling={4}>
+              <EffectComposer multisampling={isMobile ? 0 : 4}>
                 {glowEnabled ? (
                   <Bloom 
-                    intensity={1.4} 
+                    intensity={isMobile ? 1.0 : 1.4} 
                     luminanceThreshold={0.15} 
                     luminanceSmoothing={0.8} 
                     mipmapBlur 
@@ -380,55 +428,72 @@ function App() {
             </button>
           </div>
           
-          <div className={`color-controls ${isIdle ? 'ui-hidden' : ''}`}>
-            <div className="preset-group">
-              <button 
-                className="preset-btn" 
-                style={{ background: 'linear-gradient(135deg, #4facfe, #f093fb)' }} 
-                onClick={() => setColors({ colorA: '#4facfe', colorB: '#00f2fe', colorC: '#f093fb' })}
-                title="Preset: Neon Cyberpunk"
-              />
-              <button 
-                className="preset-btn" 
-                style={{ background: 'linear-gradient(135deg, #090979, #ff007f)' }} 
-                onClick={() => setColors({ colorA: '#090979', colorB: '#ff007f', colorC: '#ffaa00' })}
-                title="Preset: Synthwave Sunset"
-              />
-              <button 
-                className="preset-btn" 
-                style={{ background: 'linear-gradient(135deg, #002b11, #00ff66)' }} 
-                onClick={() => setColors({ colorA: '#002b11', colorB: '#00ff66', colorC: '#ccffdd' })}
-                title="Preset: Matrix Emerald"
-              />
-              <button 
-                className="preset-btn" 
-                style={{ background: 'linear-gradient(135deg, #4a0000, #ff4500)' }} 
-                onClick={() => setColors({ colorA: '#4a0000', colorB: '#ff4500', colorC: '#ffdf00' })}
-                title="Preset: Amber Flame"
-              />
-            </div>
-
-            <div className="color-picker-group">
-              <label>Foreground</label>
-              <input type="color" value={colors.colorC} onChange={e => setColors(prev => ({...prev, colorC: e.target.value}))} />
-            </div>
-            <div className="color-picker-group">
-              <label>Midground</label>
-              <input type="color" value={colors.colorB} onChange={e => setColors(prev => ({...prev, colorB: e.target.value}))} />
-            </div>
-            <div className="color-picker-group">
-              <label>Background</label>
-              <input type="color" value={colors.colorA} onChange={e => setColors(prev => ({...prev, colorA: e.target.value}))} />
-            </div>
-            <button className="randomize-button" onClick={randomizeColors} title="Randomize Colors">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="16 3 21 3 21 8"></polyline>
-                <line x1="4" y1="20" x2="21" y2="3"></line>
-                <polyline points="21 16 21 21 16 21"></polyline>
-                <line x1="15" y1="15" x2="21" y2="21"></line>
-                <line x1="4" y1="4" x2="9" y2="9"></line>
-              </svg>
+          <div className={`color-controls ${isIdle ? 'ui-hidden' : ''} ${isColorExpanded ? 'mobile-expanded' : ''}`}>
+            <button 
+              className="color-controls-toggle" 
+              onClick={() => setIsColorExpanded(!isColorExpanded)}
+              title="Toggle Color Palette"
+              aria-label="Toggle Color Palette"
+            >
+              <span className="color-preview-dots">
+                <span style={{ background: colors.colorC }}></span>
+                <span style={{ background: colors.colorB }}></span>
+                <span style={{ background: colors.colorA }}></span>
+              </span>
+              <span className="toggle-label">COLORS</span>
+              <span className="toggle-arrow">{isColorExpanded ? '▲' : '▼'}</span>
             </button>
+
+            <div className="color-controls-inner">
+              <div className="preset-group">
+                <button 
+                  className="preset-btn" 
+                  style={{ background: 'linear-gradient(135deg, #4facfe, #f093fb)' }} 
+                  onClick={() => setColors({ colorA: '#4facfe', colorB: '#00f2fe', colorC: '#f093fb' })}
+                  title="Preset: Neon Cyberpunk"
+                />
+                <button 
+                  className="preset-btn" 
+                  style={{ background: 'linear-gradient(135deg, #090979, #ff007f)' }} 
+                  onClick={() => setColors({ colorA: '#090979', colorB: '#ff007f', colorC: '#ffaa00' })}
+                  title="Preset: Synthwave Sunset"
+                />
+                <button 
+                  className="preset-btn" 
+                  style={{ background: 'linear-gradient(135deg, #002b11, #00ff66)' }} 
+                  onClick={() => setColors({ colorA: '#002b11', colorB: '#00ff66', colorC: '#ccffdd' })}
+                  title="Preset: Matrix Emerald"
+                />
+                <button 
+                  className="preset-btn" 
+                  style={{ background: 'linear-gradient(135deg, #4a0000, #ff4500)' }} 
+                  onClick={() => setColors({ colorA: '#4a0000', colorB: '#ff4500', colorC: '#ffdf00' })}
+                  title="Preset: Amber Flame"
+                />
+              </div>
+
+              <div className="color-picker-group">
+                <label>Foreground</label>
+                <input type="color" value={colors.colorC} onChange={e => setColors(prev => ({...prev, colorC: e.target.value}))} />
+              </div>
+              <div className="color-picker-group">
+                <label>Midground</label>
+                <input type="color" value={colors.colorB} onChange={e => setColors(prev => ({...prev, colorB: e.target.value}))} />
+              </div>
+              <div className="color-picker-group">
+                <label>Background</label>
+                <input type="color" value={colors.colorA} onChange={e => setColors(prev => ({...prev, colorA: e.target.value}))} />
+              </div>
+              <button className="randomize-button" onClick={randomizeColors} title="Randomize Colors">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="16 3 21 3 21 8"></polyline>
+                  <line x1="4" y1="20" x2="21" y2="3"></line>
+                  <polyline points="21 16 21 21 16 21"></polyline>
+                  <line x1="15" y1="15" x2="21" y2="21"></line>
+                  <line x1="4" y1="4" x2="9" y2="9"></line>
+                </svg>
+              </button>
+            </div>
           </div>
           
           <div className={`tutorial ${isIdle ? 'ui-hidden' : ''}`}>
@@ -438,15 +503,21 @@ function App() {
               <li><span className="key">↑</span> <span className="key">↓</span> <span className="key">←</span> <span className="key">→</span> Pan Camera</li>
               <li><span className="key">Space</span> Play / Pause</li>
               <li><span className="key">R</span> Re-Center</li>
-              <li><span className="key">Mouse</span> Orbit / Zoom</li>
+              <li><span className="key">Touch/Mouse</span> Orbit · Zoom · Pan</li>
             </ul>
           </div>
 
           {isModalOpen && (
-            <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
-              <div className="modal-content" onClick={e => e.stopPropagation()}>
-                <h2>House of Cards WebGL</h2>
-                <div className="modal-body">
+            <div className="side-panel-overlay" onClick={() => setIsModalOpen(false)}>
+              <div className="side-panel" onClick={e => e.stopPropagation()}>
+                <div className="drawer-handle" />
+                <div className="side-panel-header">
+                  <h2>House of Cards WebGL</h2>
+                  <button className="panel-close-icon" onClick={() => setIsModalOpen(false)} title="Close Panel" aria-label="Close Panel">
+                    ✕
+                  </button>
+                </div>
+                <div className="side-panel-body">
                   <p>
                     In 2008, Radiohead released the music video for "House of Cards", famously created entirely without cameras using Geometric Informatics and Velodyne LIDAR systems to capture 3D spatial data. 
                   </p>
@@ -464,10 +535,12 @@ function App() {
                     <button className="copy-button" onClick={handleCopyLink}>{isCopied ? 'COPIED!' : 'COPY LINK'}</button>
                   </div>
                 </div>
-                <p className="credits">
-                  Coded by <a href="https://gemini.google.com" target="_blank" rel="noreferrer">Gemini</a>, prompted by <a href="https://woakin.com" target="_blank" rel="noreferrer">Woakin</a>
-                </p>
-                <button className="close-button" onClick={() => setIsModalOpen(false)}>CLOSE</button>
+                <div className="side-panel-footer">
+                  <p className="credits">
+                    Coded by <a href="https://gemini.google.com" target="_blank" rel="noreferrer">Gemini</a>, prompted by <a href="https://woakin.com" target="_blank" rel="noreferrer">Woakin</a>
+                  </p>
+                  <button className="close-button" onClick={() => setIsModalOpen(false)}>CLOSE</button>
+                </div>
               </div>
             </div>
           )}

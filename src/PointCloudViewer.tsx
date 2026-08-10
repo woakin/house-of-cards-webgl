@@ -113,6 +113,14 @@ export function PointCloudViewer({
     return dataBuffer ? new DataView(dataBuffer) : null;
   }, [dataBuffer]);
 
+  const u8View = useMemo(() => {
+    return dataBuffer ? new Uint8Array(dataBuffer) : null;
+  }, [dataBuffer]);
+
+  const u16View = useMemo(() => {
+    return dataBuffer ? new Uint16Array(dataBuffer) : null;
+  }, [dataBuffer]);
+
   const currentFrameRef = useRef(-1);
 
   const shaderMaterial = useMemo(() => new THREE.ShaderMaterial({
@@ -194,7 +202,7 @@ export function PointCloudViewer({
       const numPoints = frame.numPoints;
       const pointsToProcess = Math.min(numPoints, MAX_POINTS);
       
-      if (isQuantizedRef.current && frame.frameMinX !== undefined) {
+      if (isQuantizedRef.current && frame.frameMinX !== undefined && u16View && u8View) {
         const frameMinX = frame.frameMinX;
         const frameMinY = frame.frameMinY!;
         const frameMinZ = frame.frameMinZ!;
@@ -203,17 +211,19 @@ export function PointCloudViewer({
         const rangeZ = frame.rangeZ!;
         
         const pointsStart = frame.byteOffset;
+        const inv65535 = 1 / 65535;
 
         for (let i = 0; i < pointsToProcess; i++) {
           const pOffset = pointsStart + i * 8;
-          const qX = dataView.getUint16(pOffset, true);
-          const qY = dataView.getUint16(pOffset + 2, true);
-          const qZ = dataView.getUint16(pOffset + 4, true);
-          const intensity = dataView.getUint8(pOffset + 6);
+          const u16Idx = pOffset >> 1;
+          const qX = u16View[u16Idx];
+          const qY = u16View[u16Idx + 1];
+          const qZ = u16View[u16Idx + 2];
+          const intensity = u8View[pOffset + 6];
 
-          positions[i * 3] = frameMinX + (qX / 65535) * rangeX;
-          positions[i * 3 + 1] = frameMinY + (qY / 65535) * rangeY;
-          positions[i * 3 + 2] = frameMinZ + (qZ / 65535) * rangeZ;
+          positions[i * 3] = frameMinX + (qX * inv65535) * rangeX;
+          positions[i * 3 + 1] = frameMinY + (qY * inv65535) * rangeY;
+          positions[i * 3 + 2] = frameMinZ + (qZ * inv65535) * rangeZ;
 
           intensities[i] = intensity;
         }
