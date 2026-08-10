@@ -268,9 +268,9 @@ function App() {
         <>
           <Canvas 
             camera={{ position: [0, 0, 500], fov: 60 }}
-            style={{ width: '100vw', height: '100vh', background: '#000' }}
+            style={{ width: '100vw', height: '100vh', background: '#000000' }}
           >
-            <color attach="background" args={['#050510']} />
+            <color attach="background" args={['#000000']} />
             <ambientLight intensity={0.5} />
             
             {/* The point cloud */}
