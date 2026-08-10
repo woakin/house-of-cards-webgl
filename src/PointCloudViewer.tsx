@@ -9,7 +9,12 @@ interface FrameData {
   numPoints: number;
   byteOffset: number;
   floatOffset?: number;
-  headerOffset?: number;
+  frameMinX?: number;
+  rangeX?: number;
+  frameMinY?: number;
+  rangeY?: number;
+  frameMinZ?: number;
+  rangeZ?: number;
 }
 
 export function PointCloudViewer({ 
@@ -49,10 +54,24 @@ export function PointCloudViewer({
       const parsedFrames: FrameData[] = [];
       for (let i = 0; i < numFrames; i++) {
         const numPoints = dataview.getUint32(byteOffset, true);
+        const hOffset = byteOffset + 4;
+
+        const frameMinX = dataview.getFloat32(hOffset, true);
+        const frameMaxX = dataview.getFloat32(hOffset + 4, true);
+        const frameMinY = dataview.getFloat32(hOffset + 8, true);
+        const frameMaxY = dataview.getFloat32(hOffset + 12, true);
+        const frameMinZ = dataview.getFloat32(hOffset + 16, true);
+        const frameMaxZ = dataview.getFloat32(hOffset + 20, true);
+
         parsedFrames.push({
           numPoints,
           byteOffset: byteOffset + 28,
-          headerOffset: byteOffset + 4,
+          frameMinX,
+          rangeX: frameMaxX - frameMinX || 1,
+          frameMinY,
+          rangeY: frameMaxY - frameMinY || 1,
+          frameMinZ,
+          rangeZ: frameMaxZ - frameMinZ || 1,
         });
         byteOffset += 28 + numPoints * 8;
       }
@@ -101,7 +120,7 @@ export function PointCloudViewer({
       colorA: { value: new THREE.Color(colors.colorA) },
       colorB: { value: new THREE.Color(colors.colorB) },
       colorC: { value: new THREE.Color(colors.colorC) },
-      pointSize: { value: 2.2 },
+      pointSize: { value: 2.8 },
     },
     vertexShader: `
       attribute float intensity;
@@ -113,7 +132,8 @@ export function PointCloudViewer({
         vIntensity = intensity;
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
         vZ = position.z;
-        gl_PointSize = pointSize * (100.0 / -mvPosition.z);
+        // Clamp point size to guarantee crisp visibility at all camera distances
+        gl_PointSize = clamp(pointSize * (160.0 / -mvPosition.z), 1.5, 12.0);
         gl_Position = projectionMatrix * mvPosition;
       }
     `,
@@ -141,8 +161,9 @@ export function PointCloudViewer({
             mixColor = mix(colorB, colorC, (t - 0.5) * 2.0);
         }
         
-        float alpha = (0.5 - ll) * 2.5;
-        gl_FragColor = vec4(mixColor * (normalizedInt * 0.8 + 0.5), alpha);
+        // Smooth anti-aliased circular particle edge
+        float alpha = smoothstep(0.5, 0.0, ll);
+        gl_FragColor = vec4(mixColor * (normalizedInt * 0.85 + 0.45), alpha);
       }
     `,
     transparent: true,
@@ -173,19 +194,13 @@ export function PointCloudViewer({
       const numPoints = frame.numPoints;
       const pointsToProcess = Math.min(numPoints, MAX_POINTS);
       
-      if (isQuantizedRef.current && frame.headerOffset !== undefined) {
-        const hOffset = frame.headerOffset;
-        
-        const frameMinX = dataView.getFloat32(hOffset, true);
-        const frameMaxX = dataView.getFloat32(hOffset + 4, true);
-        const frameMinY = dataView.getFloat32(hOffset + 8, true);
-        const frameMaxY = dataView.getFloat32(hOffset + 12, true);
-        const frameMinZ = dataView.getFloat32(hOffset + 16, true);
-        const frameMaxZ = dataView.getFloat32(hOffset + 20, true);
-        
-        const rangeX = frameMaxX - frameMinX || 1;
-        const rangeY = frameMaxY - frameMinY || 1;
-        const rangeZ = frameMaxZ - frameMinZ || 1;
+      if (isQuantizedRef.current && frame.frameMinX !== undefined) {
+        const frameMinX = frame.frameMinX;
+        const frameMinY = frame.frameMinY!;
+        const frameMinZ = frame.frameMinZ!;
+        const rangeX = frame.rangeX!;
+        const rangeY = frame.rangeY!;
+        const rangeZ = frame.rangeZ!;
         
         const pointsStart = frame.byteOffset;
 

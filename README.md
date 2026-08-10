@@ -29,17 +29,18 @@ cd house-of-cards-webgl
 npm install
 ```
 
-### 2. Convert Data to Binary
-We use a custom Node.js script to parse the thousands of CSV files and pack them into a single, highly-optimized `Float32` binary buffer (`frames.bin`).
+### 2. Convert Data to Binary & Chunks
+We use a custom Node.js pipeline to parse the CSV files, quantize coordinate ranges, and split the dataset into parallel Cloudflare-optimized binary chunks (`frames_quantized.bin` & `public/data/chunks/`).
 
-Run the conversion script:
+Run the conversion & chunking scripts:
 ```bash
 node scripts/convert.js
+node scripts/chunk_binary.js
 ```
-*This process may take a minute. It will output `public/data/frames.bin` (~390MB).*
+*This outputs optimized quantized binary chunks (~35MB total) in `public/data/chunks/` for fast parallel web streaming.*
 
 ### 3. Run the Development Server
-Once the binary file is generated, you can start the local Vite server:
+Once the binary chunks are generated, start the local Vite server:
 ```bash
 npm run dev
 ```

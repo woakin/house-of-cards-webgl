@@ -4,9 +4,9 @@ import { OrbitControls } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
 import { PointCloudViewer } from './PointCloudViewer';
-import { CityPointCloud } from './CityPointCloud';
 import { exportToPLY } from './utils/plyExporter';
-import { EffectComposer, Bloom, ChromaticAberration } from '@react-three/postprocessing';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import { AnimatedGlitch } from './AnimatedGlitch';
 import './index.css';
 
 function CameraMovement({ controlsRef }: { controlsRef: React.RefObject<OrbitControlsImpl | null> }) {
@@ -74,7 +74,6 @@ function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // New Features State
-  const [sceneMode, setSceneMode] = useState<'face' | 'city'>('face');
   const [glowEnabled, setGlowEnabled] = useState(true);
   const [glitchEnabled, setGlitchEnabled] = useState(false);
   const frameDataRef = useRef<{ positions: Float32Array; intensities: Float32Array; numPoints: number; frameIndex: number } | null>(null);
@@ -167,18 +166,18 @@ function App() {
           const manifest = await manifestRes.json();
           const totalSize = manifest.totalSize || 0;
           let loaded = 0;
-          const chunkBuffers: ArrayBuffer[] = [];
-
-          for (const chunkInfo of manifest.chunks) {
-            const chunkRes = await fetch(chunkInfo.file);
-            if (!chunkRes.ok) throw new Error(`Failed to load chunk ${chunkInfo.file}`);
-            const buf = await chunkRes.arrayBuffer();
-            chunkBuffers.push(buf);
-            loaded += buf.byteLength;
-            if (totalSize > 0) {
-              setLoadingProgress(Math.round((loaded / totalSize) * 100));
-            }
-          }
+          const chunkBuffers = await Promise.all(
+            manifest.chunks.map(async (chunkInfo: { file: string }) => {
+              const chunkRes = await fetch(chunkInfo.file);
+              if (!chunkRes.ok) throw new Error(`Failed to load chunk ${chunkInfo.file}`);
+              const buf = await chunkRes.arrayBuffer();
+              loaded += buf.byteLength;
+              if (totalSize > 0) {
+                setLoadingProgress(prev => Math.min(100, prev + Math.round((buf.byteLength / totalSize) * 100)));
+              }
+              return buf;
+            })
+          );
 
           const combined = new Uint8Array(loaded);
           let pos = 0;
@@ -188,6 +187,7 @@ function App() {
           }
 
           chunkBuffers.length = 0;
+          setLoadingProgress(100);
           setDataBuffer(combined.buffer);
           return;
         }
@@ -306,24 +306,20 @@ function App() {
         <>
           <Canvas 
             camera={{ position: [0, 0, 500], fov: 60 }}
+            dpr={[1, 2]}
+            gl={{ powerPreference: 'high-performance', antialias: false }}
             style={{ width: '100vw', height: '100vh', background: '#000000' }}
           >
             <color attach="background" args={['#000000']} />
             <ambientLight intensity={0.5} />
             
-            {sceneMode === 'face' ? (
-              <PointCloudViewer 
-                audioRef={audioRef} 
-                isPlaying={isPlaying} 
-                dataBuffer={dataBuffer} 
-                colors={colors}
-                frameDataRef={frameDataRef}
-              />
-            ) : (
-              <CityPointCloud 
-                colors={colors}
-              />
-            )}
+            <PointCloudViewer 
+              audioRef={audioRef}
+              isPlaying={isPlaying}
+              dataBuffer={dataBuffer}
+              colors={colors}
+              frameDataRef={frameDataRef}
+            />
             
             <OrbitControls 
               ref={controlsRef}
@@ -340,9 +336,16 @@ function App() {
             <CameraMovement controlsRef={controlsRef} />
 
             {(glowEnabled || glitchEnabled) && (
-              <EffectComposer>
-                {glowEnabled ? <Bloom intensity={1.2} luminanceThreshold={0.2} luminanceSmoothing={0.9} height={300} /> : <></>}
-                {glitchEnabled ? <ChromaticAberration offset={new THREE.Vector2(0.005, 0.005)} /> : <></>}
+              <EffectComposer multisampling={4}>
+                {glowEnabled ? (
+                  <Bloom 
+                    intensity={1.4} 
+                    luminanceThreshold={0.15} 
+                    luminanceSmoothing={0.8} 
+                    mipmapBlur 
+                  />
+                ) : <></>}
+                {glitchEnabled ? <AnimatedGlitch /> : <></>}
               </EffectComposer>
             )}
           </Canvas>
@@ -351,21 +354,6 @@ function App() {
             <button className="play-button" onClick={togglePlay} title="Play/Pause (Space)">
               {isPlaying ? 'PAUSE' : 'PLAY'}
             </button>
-
-            <div className="toggle-group">
-              <button 
-                className={`scene-btn ${sceneMode === 'face' ? 'active' : ''}`}
-                onClick={() => setSceneMode('face')}
-              >
-                👤 FACE
-              </button>
-              <button 
-                className={`scene-btn ${sceneMode === 'city' ? 'active' : ''}`}
-                onClick={() => setSceneMode('city')}
-              >
-                🏙️ CITY
-              </button>
-            </div>
 
             <button 
               className={`toggle-btn ${glowEnabled ? 'active' : ''}`} 
@@ -383,11 +371,9 @@ function App() {
               <span className="status-dot"></span> GLITCH {glitchEnabled ? 'ON' : 'OFF'}
             </button>
             
-            {sceneMode === 'face' && (
-              <button className="export-button" onClick={handleExportPLY} title="Export Current 3D Frame as .PLY">
-                EXPORT .PLY
-              </button>
-            )}
+            <button className="export-button" onClick={handleExportPLY} title="Export Current 3D Frame as .PLY">
+              EXPORT .PLY
+            </button>
 
             <button className="control-button" onClick={() => setIsModalOpen(true)} title="Share & Info">
               INFO
@@ -395,17 +381,44 @@ function App() {
           </div>
           
           <div className={`color-controls ${isIdle ? 'ui-hidden' : ''}`}>
+            <div className="preset-group">
+              <button 
+                className="preset-btn" 
+                style={{ background: 'linear-gradient(135deg, #4facfe, #f093fb)' }} 
+                onClick={() => setColors({ colorA: '#4facfe', colorB: '#00f2fe', colorC: '#f093fb' })}
+                title="Preset: Neon Cyberpunk"
+              />
+              <button 
+                className="preset-btn" 
+                style={{ background: 'linear-gradient(135deg, #090979, #ff007f)' }} 
+                onClick={() => setColors({ colorA: '#090979', colorB: '#ff007f', colorC: '#ffaa00' })}
+                title="Preset: Synthwave Sunset"
+              />
+              <button 
+                className="preset-btn" 
+                style={{ background: 'linear-gradient(135deg, #002b11, #00ff66)' }} 
+                onClick={() => setColors({ colorA: '#002b11', colorB: '#00ff66', colorC: '#ccffdd' })}
+                title="Preset: Matrix Emerald"
+              />
+              <button 
+                className="preset-btn" 
+                style={{ background: 'linear-gradient(135deg, #4a0000, #ff4500)' }} 
+                onClick={() => setColors({ colorA: '#4a0000', colorB: '#ff4500', colorC: '#ffdf00' })}
+                title="Preset: Amber Flame"
+              />
+            </div>
+
             <div className="color-picker-group">
               <label>Foreground</label>
-              <input type="color" value={colors.colorC} onChange={e => setColors({...colors, colorC: e.target.value})} />
+              <input type="color" value={colors.colorC} onChange={e => setColors(prev => ({...prev, colorC: e.target.value}))} />
             </div>
             <div className="color-picker-group">
               <label>Midground</label>
-              <input type="color" value={colors.colorB} onChange={e => setColors({...colors, colorB: e.target.value})} />
+              <input type="color" value={colors.colorB} onChange={e => setColors(prev => ({...prev, colorB: e.target.value}))} />
             </div>
             <div className="color-picker-group">
               <label>Background</label>
-              <input type="color" value={colors.colorA} onChange={e => setColors({...colors, colorA: e.target.value})} />
+              <input type="color" value={colors.colorA} onChange={e => setColors(prev => ({...prev, colorA: e.target.value}))} />
             </div>
             <button className="randomize-button" onClick={randomizeColors} title="Randomize Colors">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
