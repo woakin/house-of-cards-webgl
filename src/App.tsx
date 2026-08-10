@@ -4,6 +4,10 @@ import { OrbitControls } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
 import { PointCloudViewer } from './PointCloudViewer';
+import { CityPointCloud } from './CityPointCloud';
+import { exportToPLY } from './utils/plyExporter';
+import { EffectComposer, Bloom, ChromaticAberration } from '@react-three/postprocessing';
+import './index.css';
 
 function CameraMovement({ controlsRef }: { controlsRef: React.RefObject<OrbitControlsImpl | null> }) {
   const keys = useRef<{ [key: string]: boolean }>({});
@@ -68,6 +72,13 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // New Features State
+  const [sceneMode, setSceneMode] = useState<'face' | 'city'>('face');
+  const [glowEnabled, setGlowEnabled] = useState(true);
+  const [glitchEnabled, setGlitchEnabled] = useState(false);
+  const frameDataRef = useRef<{ positions: Float32Array; intensities: Float32Array; numPoints: number; frameIndex: number } | null>(null);
+
   const [colors, setColors] = useState({
     colorA: '#4facfe', // Background / Far
     colorB: '#00f2fe', // Mid
@@ -129,10 +140,22 @@ function App() {
   const [isCopied, setIsCopied] = useState(false);
 
   const handleCopyLink = useCallback(() => {
-    navigator.clipboard.writeText('https://github.com/woakin/house-of-cards-webgl');
+    navigator.clipboard.writeText('https://house-of-cards.woakin.com/');
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   }, []);
+
+  const handleExportPLY = useCallback(() => {
+    const data = frameDataRef.current;
+    if (!data) return;
+    exportToPLY({
+      positions: data.positions,
+      intensities: data.intensities,
+      numPoints: data.numPoints,
+      colors,
+      frameIndex: data.frameIndex,
+    });
+  }, [colors]);
 
   useEffect(() => {
     // Load the binary data
@@ -164,6 +187,7 @@ function App() {
             pos += buf.byteLength;
           }
 
+          chunkBuffers.length = 0;
           setDataBuffer(combined.buffer);
           return;
         }
@@ -203,6 +227,7 @@ function App() {
           pos += chunk.length;
         }
         
+        chunks.length = 0;
         setDataBuffer(combined.buffer);
       } catch (err) {
         console.error('Failed to load frames data', err);
@@ -215,8 +240,14 @@ function App() {
   const togglePlay = useCallback(() => {
     if (audioRef.current) {
       if (audioRef.current.paused) {
-        audioRef.current.play();
-        setIsPlaying(true);
+        audioRef.current.play()
+          .then(() => {
+            setIsPlaying(true);
+          })
+          .catch(err => {
+            console.warn('Audio playback prevented by browser:', err);
+            setIsPlaying(false);
+          });
       } else {
         audioRef.current.pause();
         setIsPlaying(false);
@@ -232,7 +263,14 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in an input (not applicable here but good practice)
+      if (e.code === 'Escape' && isModalOpen) {
+        e.preventDefault();
+        setIsModalOpen(false);
+        return;
+      }
+
+      if (isModalOpen) return;
+      // Don't trigger if user is typing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       
       if (e.code === 'Space') {
@@ -246,7 +284,7 @@ function App() {
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [togglePlay, recenter]);
+  }, [togglePlay, recenter, isModalOpen]);
 
   return (
     <div className="app-container">
@@ -273,13 +311,19 @@ function App() {
             <color attach="background" args={['#000000']} />
             <ambientLight intensity={0.5} />
             
-            {/* The point cloud */}
-            <PointCloudViewer 
-              audioRef={audioRef} 
-              isPlaying={isPlaying} 
-              dataBuffer={dataBuffer} 
-              colors={colors}
-            />
+            {sceneMode === 'face' ? (
+              <PointCloudViewer 
+                audioRef={audioRef} 
+                isPlaying={isPlaying} 
+                dataBuffer={dataBuffer} 
+                colors={colors}
+                frameDataRef={frameDataRef}
+              />
+            ) : (
+              <CityPointCloud 
+                colors={colors}
+              />
+            )}
             
             <OrbitControls 
               ref={controlsRef}
@@ -294,22 +338,60 @@ function App() {
             
             {/* Fluid keyboard movement component */}
             <CameraMovement controlsRef={controlsRef} />
-            {/* <Stats /> */}
+
+            {(glowEnabled || glitchEnabled) && (
+              <EffectComposer>
+                {glowEnabled ? <Bloom intensity={1.2} luminanceThreshold={0.2} luminanceSmoothing={0.9} height={300} /> : <></>}
+                {glitchEnabled ? <ChromaticAberration offset={new THREE.Vector2(0.005, 0.005)} /> : <></>}
+              </EffectComposer>
+            )}
           </Canvas>
           
           <div className={`controls ${isIdle ? 'ui-hidden' : ''}`}>
             <button className="play-button" onClick={togglePlay} title="Play/Pause (Space)">
               {isPlaying ? 'PAUSE' : 'PLAY'}
             </button>
-            <button className="control-button" onClick={() => setIsModalOpen(true)} title="Share this Visualization">
-              SHARE
-            </button>
-            <div className="info">
-              <p>House of Cards WebGL</p>
-              <p className="subtitle">
-                Original LIDAR data by <a href="https://github.com/dataarts/radiohead" target="_blank" rel="noreferrer">Radiohead / DataArts</a>
-              </p>
+
+            <div className="toggle-group">
+              <button 
+                className={`scene-btn ${sceneMode === 'face' ? 'active' : ''}`}
+                onClick={() => setSceneMode('face')}
+              >
+                👤 FACE
+              </button>
+              <button 
+                className={`scene-btn ${sceneMode === 'city' ? 'active' : ''}`}
+                onClick={() => setSceneMode('city')}
+              >
+                🏙️ CITY
+              </button>
             </div>
+
+            <button 
+              className={`toggle-btn ${glowEnabled ? 'active' : ''}`} 
+              onClick={() => setGlowEnabled(!glowEnabled)} 
+              title="Toggle Neon Bloom Glow"
+            >
+              <span className="status-dot"></span> GLOW {glowEnabled ? 'ON' : 'OFF'}
+            </button>
+            
+            <button 
+              className={`toggle-btn ${glitchEnabled ? 'active' : ''}`} 
+              onClick={() => setGlitchEnabled(!glitchEnabled)} 
+              title="Toggle Glitch Effect"
+            >
+              <span className="status-dot"></span> GLITCH {glitchEnabled ? 'ON' : 'OFF'}
+            </button>
+            
+            {sceneMode === 'face' && (
+              <button className="export-button" onClick={handleExportPLY} title="Export Current 3D Frame as .PLY">
+                EXPORT .PLY
+              </button>
+            )}
+
+            <button className="control-button" onClick={() => setIsModalOpen(true)} title="Share & Info">
+              INFO
+            </button>
           </div>
           
           <div className={`color-controls ${isIdle ? 'ui-hidden' : ''}`}>
@@ -365,7 +447,7 @@ function App() {
                   </ul>
                   
                   <div className="share-section">
-                    <input type="text" readOnly value="https://github.com/woakin/house-of-cards-webgl" className="share-input" />
+                    <input type="text" readOnly value="https://house-of-cards.woakin.com/" className="share-input" />
                     <button className="copy-button" onClick={handleCopyLink}>{isCopied ? 'COPIED!' : 'COPY LINK'}</button>
                   </div>
                 </div>

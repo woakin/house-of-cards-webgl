@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
 const FPS = 30; // Assuming 30 frames per second
-const MAX_POINTS = 20000; // Pre-allocate buffer
+const MAX_POINTS = 35000; // Pre-allocate buffer safely for large frames
 
 interface FrameData {
   numPoints: number;
@@ -12,20 +12,18 @@ interface FrameData {
   headerOffset?: number;
 }
 
-interface QuantMetadata {
-  isQuantized: boolean;
-}
-
 export function PointCloudViewer({ 
   audioRef,
   isPlaying,
   dataBuffer,
-  colors
+  colors,
+  frameDataRef
 }: { 
   audioRef: React.RefObject<HTMLAudioElement | null>,
   isPlaying: boolean,
   dataBuffer: ArrayBuffer,
-  colors: { colorA: string, colorB: string, colorC: string }
+  colors: { colorA: string, colorB: string, colorC: string },
+  frameDataRef?: React.MutableRefObject<{ positions: Float32Array; intensities: Float32Array; numPoints: number; frameIndex: number } | null>
 }) {
   const pointsRef = useRef<THREE.Points>(null);
   const geomRef = useRef<THREE.BufferGeometry>(null);
@@ -33,7 +31,7 @@ export function PointCloudViewer({
   // Parse the binary header to index the frames
   const [frames, setFrames] = useState<FrameData[]>([]);
   const [floatData, setFloatData] = useState<Float32Array | null>(null);
-  const [quantMeta, setQuantMeta] = useState<QuantMetadata | null>(null);
+  const isQuantizedRef = useRef(false);
   
   useEffect(() => {
     if (!dataBuffer) return;
@@ -45,7 +43,7 @@ export function PointCloudViewer({
 
     if (isQuant) {
       const numFrames = dataview.getUint32(4, true);
-      setQuantMeta({ isQuantized: true });
+      isQuantizedRef.current = true;
 
       let byteOffset = 8;
       const parsedFrames: FrameData[] = [];
@@ -60,7 +58,7 @@ export function PointCloudViewer({
       }
       setFrames(parsedFrames);
     } else {
-      setQuantMeta(null);
+      isQuantizedRef.current = false;
       const headerView = new Uint32Array(dataBuffer, 0, 1);
       const numFrames = headerView[0];
       
@@ -92,83 +90,11 @@ export function PointCloudViewer({
     ];
   }, []);
 
-  const [currentFrame, setCurrentFrame] = useState(-1);
+  const dataView = useMemo(() => {
+    return dataBuffer ? new DataView(dataBuffer) : null;
+  }, [dataBuffer]);
 
-  useFrame(() => {
-    if (!audioRef.current || frames.length === 0 || !dataBuffer) return;
-    
-    const time = (!isPlaying && audioRef.current.currentTime === 0) 
-      ? 14.0 
-      : audioRef.current.currentTime;
-
-    let targetFrame = Math.floor(time * FPS);
-    
-    if (targetFrame >= frames.length) {
-      targetFrame = frames.length - 1;
-    }
-    
-    if (targetFrame !== currentFrame) {
-      const frame = frames[targetFrame];
-      const numPoints = frame.numPoints;
-      
-      if (quantMeta && quantMeta.isQuantized && frame.headerOffset !== undefined) {
-        const dataview = new DataView(dataBuffer);
-        const hOffset = frame.headerOffset;
-        
-        const frameMinX = dataview.getFloat32(hOffset, true);
-        const frameMaxX = dataview.getFloat32(hOffset + 4, true);
-        const frameMinY = dataview.getFloat32(hOffset + 8, true);
-        const frameMaxY = dataview.getFloat32(hOffset + 12, true);
-        const frameMinZ = dataview.getFloat32(hOffset + 16, true);
-        const frameMaxZ = dataview.getFloat32(hOffset + 20, true);
-        
-        const rangeX = frameMaxX - frameMinX || 1;
-        const rangeY = frameMaxY - frameMinY || 1;
-        const rangeZ = frameMaxZ - frameMinZ || 1;
-        
-        const pointsStart = frame.byteOffset;
-
-        let pointIdx = 0;
-        for (let i = 0; i < numPoints; i++) {
-          const pOffset = pointsStart + i * 8;
-          const qX = dataview.getUint16(pOffset, true);
-          const qY = dataview.getUint16(pOffset + 2, true);
-          const qZ = dataview.getUint16(pOffset + 4, true);
-          const intensity = dataview.getUint8(pOffset + 6);
-
-          positions[pointIdx * 3] = frameMinX + (qX / 65535) * rangeX;
-          positions[pointIdx * 3 + 1] = frameMinY + (qY / 65535) * rangeY;
-          positions[pointIdx * 3 + 2] = frameMinZ + (qZ / 65535) * rangeZ;
-
-          intensities[pointIdx] = intensity;
-
-          pointIdx++;
-        }
-      } else if (floatData && frame.floatOffset !== undefined) {
-        const frameStart = frame.floatOffset;
-        let pointIdx = 0;
-        for (let i = 0; i < numPoints; i++) {
-          const floatIdx = frameStart + i * 4;
-          
-          positions[pointIdx * 3] = floatData[floatIdx];
-          positions[pointIdx * 3 + 1] = floatData[floatIdx + 1];
-          positions[pointIdx * 3 + 2] = floatData[floatIdx + 2];
-          
-          intensities[pointIdx] = floatData[floatIdx + 3];
-          
-          pointIdx++;
-        }
-      }
-      
-      if (geomRef.current) {
-        geomRef.current.attributes.position.needsUpdate = true;
-        geomRef.current.attributes.intensity.needsUpdate = true;
-        geomRef.current.setDrawRange(0, numPoints);
-      }
-      
-      setCurrentFrame(targetFrame);
-    }
-  });
+  const currentFrameRef = useRef(-1);
 
   const shaderMaterial = useMemo(() => new THREE.ShaderMaterial({
     uniforms: {
@@ -186,10 +112,7 @@ export function PointCloudViewer({
       void main() {
         vIntensity = intensity;
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        
-        // Pass original Z position to fragment shader for depth coloring
         vZ = position.z;
-        
         gl_PointSize = pointSize * (100.0 / -mvPosition.z);
         gl_Position = projectionMatrix * mvPosition;
       }
@@ -203,39 +126,122 @@ export function PointCloudViewer({
       varying float vZ;
       
       void main() {
-        // Map intensity (assume typically 0..255 or 0..1, lets normalize roughly if it's 0-255)
-        // From looking at the CSV, intensity might be like 15-40, so let's scale it.
         float normalizedInt = clamp(vIntensity / 40.0, 0.0, 1.0);
         
-        // Soft circular point
         vec2 xy = gl_PointCoord.xy - vec2(0.5);
         float ll = length(xy);
         if (ll > 0.5) discard;
         
-        // Create depth-based gradient
-        // Based on the raw binary data, the face bounds are mostly between Z = -250 and Z = -50.
-        // We'll normalize this range to 0.0 - 1.0
         float t = clamp((vZ + 250.0) / 200.0, 0.0, 1.0);
         
-        // Mix colors based on depth (Z)
         vec3 mixColor;
         if (t < 0.5) {
-            // Smoothly mix Background (A) and Midground (B)
             mixColor = mix(colorA, colorB, t * 2.0);
         } else {
-            // Smoothly mix Midground (B) and Foreground (C)
             mixColor = mix(colorB, colorC, (t - 0.5) * 2.0);
         }
         
-        float alpha = (0.5 - ll) * 2.5; // Slightly harder edge for better definition
+        float alpha = (0.5 - ll) * 2.5;
         gl_FragColor = vec4(mixColor * (normalizedInt * 0.8 + 0.5), alpha);
       }
     `,
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), []); // Keep material instance the same, we'll update uniforms below
+  }), []);
+
+  useFrame(() => {
+    if (!audioRef.current || frames.length === 0 || !dataBuffer || !dataView) return;
+    
+    const time = (!isPlaying && audioRef.current.currentTime === 0) 
+      ? 14.0 
+      : audioRef.current.currentTime;
+
+    let targetFrame = Math.floor(time * FPS);
+    
+    if (targetFrame >= frames.length) {
+      targetFrame = frames.length - 1;
+    }
+    if (targetFrame < 0) {
+      targetFrame = 0;
+    }
+    
+    if (targetFrame !== currentFrameRef.current) {
+      const frame = frames[targetFrame];
+      if (!frame) return;
+      
+      const numPoints = frame.numPoints;
+      const pointsToProcess = Math.min(numPoints, MAX_POINTS);
+      
+      if (isQuantizedRef.current && frame.headerOffset !== undefined) {
+        const hOffset = frame.headerOffset;
+        
+        const frameMinX = dataView.getFloat32(hOffset, true);
+        const frameMaxX = dataView.getFloat32(hOffset + 4, true);
+        const frameMinY = dataView.getFloat32(hOffset + 8, true);
+        const frameMaxY = dataView.getFloat32(hOffset + 12, true);
+        const frameMinZ = dataView.getFloat32(hOffset + 16, true);
+        const frameMaxZ = dataView.getFloat32(hOffset + 20, true);
+        
+        const rangeX = frameMaxX - frameMinX || 1;
+        const rangeY = frameMaxY - frameMinY || 1;
+        const rangeZ = frameMaxZ - frameMinZ || 1;
+        
+        const pointsStart = frame.byteOffset;
+
+        for (let i = 0; i < pointsToProcess; i++) {
+          const pOffset = pointsStart + i * 8;
+          const qX = dataView.getUint16(pOffset, true);
+          const qY = dataView.getUint16(pOffset + 2, true);
+          const qZ = dataView.getUint16(pOffset + 4, true);
+          const intensity = dataView.getUint8(pOffset + 6);
+
+          positions[i * 3] = frameMinX + (qX / 65535) * rangeX;
+          positions[i * 3 + 1] = frameMinY + (qY / 65535) * rangeY;
+          positions[i * 3 + 2] = frameMinZ + (qZ / 65535) * rangeZ;
+
+          intensities[i] = intensity;
+        }
+      } else if (floatData && frame.floatOffset !== undefined) {
+        const frameStart = frame.floatOffset;
+        for (let i = 0; i < pointsToProcess; i++) {
+          const floatIdx = frameStart + i * 4;
+          
+          positions[i * 3] = floatData[floatIdx];
+          positions[i * 3 + 1] = floatData[floatIdx + 1];
+          positions[i * 3 + 2] = floatData[floatIdx + 2];
+          
+          intensities[i] = floatData[floatIdx + 3];
+        }
+      }
+      
+      if (geomRef.current) {
+        geomRef.current.attributes.position.needsUpdate = true;
+        geomRef.current.attributes.intensity.needsUpdate = true;
+        geomRef.current.setDrawRange(0, pointsToProcess);
+      }
+      
+      currentFrameRef.current = targetFrame;
+
+      if (frameDataRef) {
+        frameDataRef.current = {
+          positions,
+          intensities,
+          numPoints: pointsToProcess,
+          frameIndex: targetFrame + 1,
+        };
+      }
+    }
+  });
+
+  useEffect(() => {
+    return () => {
+      shaderMaterial.dispose();
+      if (geomRef.current) {
+        geomRef.current.dispose();
+      }
+    };
+  }, [shaderMaterial]);
 
   useEffect(() => {
     shaderMaterial.uniforms.colorA.value.set(colors.colorA);
