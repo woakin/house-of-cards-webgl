@@ -399,33 +399,36 @@ function App() {
           </Canvas>
           
           <div className={`controls ${isIdle ? 'ui-hidden' : ''}`}>
-            <button className="play-button" onClick={togglePlay} title="Play/Pause (Space)">
-              {isPlaying ? 'PAUSE' : 'PLAY'}
-            </button>
-
-            <button 
-              className={`toggle-btn ${glowEnabled ? 'active' : ''}`} 
-              onClick={() => setGlowEnabled(!glowEnabled)} 
-              title="Toggle Neon Bloom Glow"
-            >
-              <span className="status-dot"></span> GLOW {glowEnabled ? 'ON' : 'OFF'}
-            </button>
+            <div className="controls-row primary-row">
+              <button className="play-button" onClick={togglePlay} title="Play/Pause (Space)">
+                {isPlaying ? 'PAUSE' : 'PLAY'}
+              </button>
+              <button className="control-button" onClick={() => setIsModalOpen(true)} title="Share & Info">
+                INFO
+              </button>
+            </div>
             
-            <button 
-              className={`toggle-btn ${glitchEnabled ? 'active' : ''}`} 
-              onClick={() => setGlitchEnabled(!glitchEnabled)} 
-              title="Toggle Glitch Effect"
-            >
-              <span className="status-dot"></span> GLITCH {glitchEnabled ? 'ON' : 'OFF'}
-            </button>
-            
-            <button className="export-button" onClick={handleExportPLY} title="Export Current 3D Frame as .PLY">
-              EXPORT .PLY
-            </button>
-
-            <button className="control-button" onClick={() => setIsModalOpen(true)} title="Share & Info">
-              INFO
-            </button>
+            <div className="controls-row secondary-row">
+              <button 
+                className={`toggle-btn ${glowEnabled ? 'active' : ''}`} 
+                onClick={() => setGlowEnabled(!glowEnabled)} 
+                title="Toggle Neon Bloom Glow"
+              >
+                <span className="status-dot"></span> GLOW<span className="btn-label-suffix"> {glowEnabled ? 'ON' : 'OFF'}</span>
+              </button>
+              
+              <button 
+                className={`toggle-btn ${glitchEnabled ? 'active' : ''}`} 
+                onClick={() => setGlitchEnabled(!glitchEnabled)} 
+                title="Toggle Glitch Effect"
+              >
+                <span className="status-dot"></span> GLITCH<span className="btn-label-suffix"> {glitchEnabled ? 'ON' : 'OFF'}</span>
+              </button>
+              
+              <button className="export-button" onClick={handleExportPLY} title="Export Current 3D Frame as .PLY">
+                EXPORT<span className="btn-label-suffix"> .PLY</span>
+              </button>
+            </div>
           </div>
           
           <div className={`color-controls ${isIdle ? 'ui-hidden' : ''} ${isColorExpanded ? 'mobile-expanded' : ''}`}>
@@ -445,54 +448,58 @@ function App() {
             </button>
 
             <div className="color-controls-inner">
-              <div className="preset-group">
-                <button 
-                  className="preset-btn" 
-                  style={{ background: 'linear-gradient(135deg, #4facfe, #f093fb)' }} 
-                  onClick={() => setColors({ colorA: '#4facfe', colorB: '#00f2fe', colorC: '#f093fb' })}
-                  title="Preset: Neon Cyberpunk"
-                />
-                <button 
-                  className="preset-btn" 
-                  style={{ background: 'linear-gradient(135deg, #090979, #ff007f)' }} 
-                  onClick={() => setColors({ colorA: '#090979', colorB: '#ff007f', colorC: '#ffaa00' })}
-                  title="Preset: Synthwave Sunset"
-                />
-                <button 
-                  className="preset-btn" 
-                  style={{ background: 'linear-gradient(135deg, #002b11, #00ff66)' }} 
-                  onClick={() => setColors({ colorA: '#002b11', colorB: '#00ff66', colorC: '#ccffdd' })}
-                  title="Preset: Matrix Emerald"
-                />
-                <button 
-                  className="preset-btn" 
-                  style={{ background: 'linear-gradient(135deg, #4a0000, #ff4500)' }} 
-                  onClick={() => setColors({ colorA: '#4a0000', colorB: '#ff4500', colorC: '#ffdf00' })}
-                  title="Preset: Amber Flame"
-                />
+              <div className="presets-container">
+                <div className="preset-group">
+                  <button 
+                    className="preset-btn" 
+                    style={{ background: 'linear-gradient(135deg, #4facfe, #f093fb)' }} 
+                    onClick={() => setColors({ colorA: '#4facfe', colorB: '#00f2fe', colorC: '#f093fb' })}
+                    title="Preset: Neon Cyberpunk"
+                  />
+                  <button 
+                    className="preset-btn" 
+                    style={{ background: 'linear-gradient(135deg, #090979, #ff007f)' }} 
+                    onClick={() => setColors({ colorA: '#090979', colorB: '#ff007f', colorC: '#ffaa00' })}
+                    title="Preset: Synthwave Sunset"
+                  />
+                  <button 
+                    className="preset-btn" 
+                    style={{ background: 'linear-gradient(135deg, #002b11, #00ff66)' }} 
+                    onClick={() => setColors({ colorA: '#002b11', colorB: '#00ff66', colorC: '#ccffdd' })}
+                    title="Preset: Matrix Emerald"
+                  />
+                  <button 
+                    className="preset-btn" 
+                    style={{ background: 'linear-gradient(135deg, #4a0000, #ff4500)' }} 
+                    onClick={() => setColors({ colorA: '#4a0000', colorB: '#ff4500', colorC: '#ffdf00' })}
+                    title="Preset: Amber Flame"
+                  />
+                </div>
+                <button className="randomize-button" onClick={randomizeColors} title="Randomize Colors">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="16 3 21 3 21 8"></polyline>
+                    <line x1="4" y1="20" x2="21" y2="3"></line>
+                    <polyline points="21 16 21 21 16 21"></polyline>
+                    <line x1="15" y1="15" x2="21" y2="21"></line>
+                    <line x1="4" y1="4" x2="9" y2="9"></line>
+                  </svg>
+                </button>
               </div>
 
-              <div className="color-picker-group">
-                <label>Foreground</label>
-                <input type="color" value={colors.colorC} onChange={e => setColors(prev => ({...prev, colorC: e.target.value}))} />
+              <div className="color-pickers-container">
+                <div className="color-picker-group">
+                  <label>Foreground</label>
+                  <input type="color" value={colors.colorC} onChange={e => setColors(prev => ({...prev, colorC: e.target.value}))} />
+                </div>
+                <div className="color-picker-group">
+                  <label>Midground</label>
+                  <input type="color" value={colors.colorB} onChange={e => setColors(prev => ({...prev, colorB: e.target.value}))} />
+                </div>
+                <div className="color-picker-group">
+                  <label>Background</label>
+                  <input type="color" value={colors.colorA} onChange={e => setColors(prev => ({...prev, colorA: e.target.value}))} />
+                </div>
               </div>
-              <div className="color-picker-group">
-                <label>Midground</label>
-                <input type="color" value={colors.colorB} onChange={e => setColors(prev => ({...prev, colorB: e.target.value}))} />
-              </div>
-              <div className="color-picker-group">
-                <label>Background</label>
-                <input type="color" value={colors.colorA} onChange={e => setColors(prev => ({...prev, colorA: e.target.value}))} />
-              </div>
-              <button className="randomize-button" onClick={randomizeColors} title="Randomize Colors">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="16 3 21 3 21 8"></polyline>
-                  <line x1="4" y1="20" x2="21" y2="3"></line>
-                  <polyline points="21 16 21 21 16 21"></polyline>
-                  <line x1="15" y1="15" x2="21" y2="21"></line>
-                  <line x1="4" y1="4" x2="9" y2="9"></line>
-                </svg>
-              </button>
             </div>
           </div>
           
