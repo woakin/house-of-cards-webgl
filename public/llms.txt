@@ -1,0 +1,16 @@
+# House of Cards WebGL
+
+> An interactive, real-time 3D WebGL point cloud visualization of Radiohead's "House of Cards" music video LiDAR dataset.
+
+## Project Overview
+
+- [Live Experience](https://house-of-cards.woakin.com): Interactive 3D point cloud visualization with real-time camera controls, dynamic depth gradients, and particle bloom.
+- [GitHub Repository](https://github.com/woakin/house-of-cards-webgl): Source code, shader pipelines, and data conversion scripts.
+- [DataArts Original Archive](https://github.com/dataarts/radiohead): Original Radiohead open-source LiDAR and 3D data archive.
+
+## Architecture & Technology
+
+- [React Three Fiber](https://r3f.docs.pmnd.rs/): Declarative Three.js WebGL engine.
+- [Custom GLSL Shaders](https://github.com/woakin/house-of-cards-webgl/blob/main/src/PointCloudViewer.tsx): Real-time tri-color depth mapping and anti-aliased circular particle rasterization.
+- [Binary Streaming Engine](https://github.com/woakin/house-of-cards-webgl/blob/main/src/App.tsx): Progressive chunked streaming for 2,100+ LiDAR animation frames.
+- [Stanford PLY Exporter](https://github.com/woakin/house-of-cards-webgl/blob/main/src/utils/plyExporter.ts): Client-side 3D model frame export utility.
