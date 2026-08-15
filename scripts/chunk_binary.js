@@ -28,7 +28,7 @@ if (!fs.existsSync(chunksDir)) {
 
 const stats = fs.statSync(targetFile);
 const totalSize = stats.size;
-const CHUNK_SIZE = 15 * 1024 * 1024; // 15 MB chunks (well below Cloudflare 25 MB limit)
+const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB chunks for fast, reliable mobile streaming
 
 console.log(`Chunking ${path.basename(targetFile)} (${(totalSize / 1024 / 1024).toFixed(2)} MB)...`);
 

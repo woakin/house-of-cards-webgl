@@ -1,64 +1,204 @@
 {
   "source": "frames_quantized.bin",
   "totalSize": 204880764,
-  "chunkCount": 14,
+  "chunkCount": 49,
   "chunks": [
     {
       "file": "/data/chunks/frame_chunk_00.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_01.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_02.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_03.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_04.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_05.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_06.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_07.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_08.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_09.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_10.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_11.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_12.bin",
-      "size": 15728640
+      "size": 4194304
     },
     {
       "file": "/data/chunks/frame_chunk_13.bin",
-      "size": 408444
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_14.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_15.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_16.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_17.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_18.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_19.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_20.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_21.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_22.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_23.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_24.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_25.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_26.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_27.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_28.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_29.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_30.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_31.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_32.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_33.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_34.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_35.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_36.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_37.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_38.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_39.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_40.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_41.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_42.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_43.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_44.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_45.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_46.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_47.bin",
+      "size": 4194304
+    },
+    {
+      "file": "/data/chunks/frame_chunk_48.bin",
+      "size": 3554172
     }
   ],
-  "generatedAt": "2026-08-10T03:05:29.475Z"
+  "generatedAt": "2026-08-15T19:43:24.472Z"
 }

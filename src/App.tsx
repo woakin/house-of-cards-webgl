@@ -217,6 +217,27 @@ function App() {
   const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
+    // Helper for resilient chunk fetching with retry and timeout
+    const fetchWithRetry = async (url: string, retries = 3, delayMs = 600): Promise<Response> => {
+      let lastError: unknown = null;
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 25000);
+          const res = await fetch(url, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          if (res.ok) return res;
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        } catch (err) {
+          lastError = err;
+          if (attempt < retries) {
+            await new Promise(r => setTimeout(r, delayMs * attempt));
+          }
+        }
+      }
+      throw lastError || new Error(`Failed to load: ${url}`);
+    };
+
     // Load the binary data with progressive streaming
     const loadData = async () => {
       setLoadError(null);
@@ -226,7 +247,7 @@ function App() {
 
       try {
         // Try loading chunked manifest first (for Cloudflare Pages & high performance CDN)
-        const manifestRes = await fetch('/data/chunks/manifest.json');
+        const manifestRes = await fetchWithRetry('/data/chunks/manifest.json');
         if (manifestRes.ok) {
           const manifest = await manifestRes.json();
           const totalSize = manifest.totalSize || 204880764;
@@ -238,8 +259,7 @@ function App() {
           const combined = new Uint8Array(totalSize);
 
           // 1. Fetch initial chunk for instantaneous scene initialization
-          const chunk0Res = await fetch(chunkList[0].file);
-          if (!chunk0Res.ok) throw new Error(`Failed to load initial data chunk: ${chunkList[0].file}`);
+          const chunk0Res = await fetchWithRetry(chunkList[0].file);
           const chunk0Buf = await chunk0Res.arrayBuffer();
           combined.set(new Uint8Array(chunk0Buf), 0);
 
@@ -258,11 +278,7 @@ function App() {
             (async () => {
               for (let i = 1; i < chunkList.length; i++) {
                 try {
-                  const chunkRes = await fetch(chunkList[i].file);
-                  if (!chunkRes.ok) {
-                    console.warn(`Failed chunk load: ${chunkList[i].file}`);
-                    continue;
-                  }
+                  const chunkRes = await fetchWithRetry(chunkList[i].file, 3, 800);
                   const buf = await chunkRes.arrayBuffer();
                   combined.set(new Uint8Array(buf), offset);
                   offset += buf.byteLength;
