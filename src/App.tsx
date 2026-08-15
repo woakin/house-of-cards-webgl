@@ -81,9 +81,11 @@ function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // New Features State
-  const [glowEnabled, setGlowEnabled] = useState(true);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  const [glowEnabled, setGlowEnabled] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true);
   const [glitchEnabled, setGlitchEnabled] = useState(false);
   const frameDataRef = useRef<{ positions: Float32Array; intensities: Float32Array; numPoints: number; frameIndex: number } | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   const [colors, setColors] = useState({
     colorA: '#4facfe', // Background / Far
@@ -91,7 +93,6 @@ function App() {
     colorC: '#f093fb'  // Foreground / Close
   });
   const [isColorExpanded, setIsColorExpanded] = useState(false);
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
 
   useEffect(() => {
     const handleResize = () => {
@@ -100,6 +101,45 @@ function App() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Screen Wake Lock on mobile during active playback
+  useEffect(() => {
+    const requestWakeLock = async () => {
+      if (isPlaying && 'wakeLock' in navigator) {
+        try {
+          wakeLockRef.current = await navigator.wakeLock.request('screen');
+          wakeLockRef.current.addEventListener('release', () => {
+            wakeLockRef.current = null;
+          });
+        } catch (err) {
+          console.warn('Wake Lock request error:', err);
+        }
+      } else if (!isPlaying && wakeLockRef.current) {
+        try {
+          await wakeLockRef.current.release();
+        } catch {
+          // ignore
+        }
+        wakeLockRef.current = null;
+      }
+    };
+
+    requestWakeLock();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isPlaying) {
+        requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+      }
+    };
+  }, [isPlaying]);
 
   const [isIdle, setIsIdle] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -386,7 +426,7 @@ function App() {
       ) : (
         <>
           <Canvas 
-            camera={{ position: [0, 0, 500], fov: 60 }}
+            camera={{ position: [0, 0, isMobile ? 580 : 500], fov: isMobile ? 65 : 60 }}
             dpr={isMobile ? 1 : [1, 2]}
             gl={{ powerPreference: 'high-performance', antialias: false }}
             style={{ width: '100%', height: '100%', background: '#000000' }}
