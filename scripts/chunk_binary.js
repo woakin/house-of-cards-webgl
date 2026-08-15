@@ -24,6 +24,14 @@ if (!fs.existsSync(sourceFile)) {
 
 if (!fs.existsSync(chunksDir)) {
   fs.mkdirSync(chunksDir, { recursive: true });
+} else {
+  // Clean existing chunks to prevent stale files
+  const existing = fs.readdirSync(chunksDir);
+  for (const f of existing) {
+    if (f.endsWith('.bin')) {
+      fs.unlinkSync(path.join(chunksDir, f));
+    }
+  }
 }
 
 const stats = fs.statSync(targetFile);
@@ -40,7 +48,7 @@ let index = 0;
 while (offset < totalSize) {
   const end = Math.min(offset + CHUNK_SIZE, totalSize);
   const chunkBuffer = buffer.subarray(offset, end);
-  const chunkFileName = `frame_chunk_${String(index).padStart(2, '0')}.bin`;
+  const chunkFileName = `chunk_v2_${String(index).padStart(2, '0')}.bin`;
   const chunkPath = path.join(chunksDir, chunkFileName);
   
   fs.writeFileSync(chunkPath, chunkBuffer);
