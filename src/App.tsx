@@ -72,7 +72,10 @@ function CameraMovement({ controlsRef }: { controlsRef: React.RefObject<OrbitCon
 function App() {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const [dataBuffer, setDataBuffer] = useState<ArrayBuffer | null>(null);
+  const [loadedBytes, setLoadedBytes] = useState<number>(0);
   const [loadingProgress, setLoadingProgress] = useState(0);
+  const [streamingProgress, setStreamingProgress] = useState(0);
+  const [isStreamingComplete, setIsStreamingComplete] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -174,52 +177,78 @@ function App() {
   const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
-    // Load the binary data
+    // Load the binary data with progressive streaming
     const loadData = async () => {
       setLoadError(null);
       setLoadingProgress(0);
+      setStreamingProgress(0);
+      setIsStreamingComplete(false);
 
       try {
         // Try loading chunked manifest first (for Cloudflare Pages & high performance CDN)
         const manifestRes = await fetch('/data/chunks/manifest.json');
         if (manifestRes.ok) {
           const manifest = await manifestRes.json();
-          const totalSize = manifest.totalSize || 0;
-          const chunkProgress = new Array(manifest.chunks.length).fill(0);
+          const totalSize = manifest.totalSize || 204880764;
+          const chunkList: { file: string; size?: number }[] = manifest.chunks || [];
 
-          const updateProgress = () => {
-            if (totalSize > 0) {
-              const currentTotal = chunkProgress.reduce((sum, val) => sum + val, 0);
-              setLoadingProgress(Math.min(100, Math.round((currentTotal / totalSize) * 100)));
-            }
+          if (chunkList.length === 0) throw new Error('Manifest contains no chunks');
+
+          // Allocate contiguous buffer once
+          const combined = new Uint8Array(totalSize);
+
+          // 1. Fetch initial chunk for instantaneous scene initialization
+          const chunk0Res = await fetch(chunkList[0].file);
+          if (!chunk0Res.ok) throw new Error(`Failed to load initial data chunk: ${chunkList[0].file}`);
+          const chunk0Buf = await chunk0Res.arrayBuffer();
+          combined.set(new Uint8Array(chunk0Buf), 0);
+
+          let currentLoaded = chunk0Buf.byteLength;
+          setLoadedBytes(currentLoaded);
+          setLoadingProgress(100);
+          setStreamingProgress(Math.min(100, Math.round((currentLoaded / totalSize) * 100)));
+          setDataBuffer(combined.buffer); // Scene mounts and becomes interactive immediately!
+
+          // 2. Stream remaining chunks on idle / play without blocking initial load
+          let isStreamingActive = false;
+          const startBackgroundStreaming = () => {
+            if (isStreamingActive) return;
+            isStreamingActive = true;
+            let offset = currentLoaded;
+            (async () => {
+              for (let i = 1; i < chunkList.length; i++) {
+                try {
+                  const chunkRes = await fetch(chunkList[i].file);
+                  if (!chunkRes.ok) {
+                    console.warn(`Failed chunk load: ${chunkList[i].file}`);
+                    continue;
+                  }
+                  const buf = await chunkRes.arrayBuffer();
+                  combined.set(new Uint8Array(buf), offset);
+                  offset += buf.byteLength;
+                  currentLoaded = offset;
+                  setLoadedBytes(currentLoaded);
+                  setStreamingProgress(Math.min(100, Math.round((currentLoaded / totalSize) * 100)));
+                  // Brief micro-yield to keep UI & 60fps WebGL loop responsive
+                  await new Promise(r => setTimeout(r, 20));
+                } catch (streamErr) {
+                  console.warn('Background chunk streaming warning:', streamErr);
+                }
+              }
+              setIsStreamingComplete(true);
+            })();
           };
 
-          const chunkBuffers = await Promise.all(
-            manifest.chunks.map(async (chunkInfo: { file: string; size?: number }, idx: number) => {
-              const chunkRes = await fetch(chunkInfo.file);
-              if (!chunkRes.ok) throw new Error(`Failed to load data chunk: ${chunkInfo.file}`);
-              const buf = await chunkRes.arrayBuffer();
-              chunkProgress[idx] = buf.byteLength;
-              updateProgress();
-              return buf;
-            })
-          );
-
-          let loaded = 0;
-          for (const buf of chunkBuffers) {
-            loaded += buf.byteLength;
-          }
-
-          const combined = new Uint8Array(loaded);
-          let pos = 0;
-          for (const buf of chunkBuffers) {
-            combined.set(new Uint8Array(buf), pos);
-            pos += buf.byteLength;
-          }
-
-          chunkBuffers.length = 0;
-          setLoadingProgress(100);
-          setDataBuffer(combined.buffer);
+          // Schedule background streaming after initial render settles or upon first interaction
+          const idleTimer = setTimeout(startBackgroundStreaming, 2500);
+          const handleFirstPlay = () => {
+            clearTimeout(idleTimer);
+            startBackgroundStreaming();
+            window.removeEventListener('click', handleFirstPlay);
+            window.removeEventListener('keydown', handleFirstPlay);
+          };
+          window.addEventListener('click', handleFirstPlay, { once: true });
+          window.addEventListener('keydown', handleFirstPlay, { once: true });
           return;
         }
 
@@ -239,7 +268,7 @@ function App() {
         if (!response.body) throw new Error('ReadableStream not supported by browser');
         
         const reader = response.body.getReader();
-        const chunks = [];
+        const chunks: Uint8Array[] = [];
         
         while (true) {
           const { done, value } = await reader.read();
@@ -262,6 +291,9 @@ function App() {
         }
         
         chunks.length = 0;
+        setLoadedBytes(loaded);
+        setStreamingProgress(100);
+        setIsStreamingComplete(true);
         setDataBuffer(combined.buffer);
       } catch (err: unknown) {
         console.error('Failed to load frames data:', err);
@@ -323,7 +355,7 @@ function App() {
   }, [togglePlay, recenter, isModalOpen]);
 
   return (
-    <div className="app-container">
+    <main className="app-container" id="main-content" role="main">
       <audio 
         ref={audioRef} 
         src="/data/HouseOfCards_DataSample.mp3" 
@@ -366,6 +398,7 @@ function App() {
               audioRef={audioRef}
               isPlaying={isPlaying}
               dataBuffer={dataBuffer}
+              loadedBytes={loadedBytes}
               colors={colors}
               frameDataRef={frameDataRef}
             />
@@ -407,6 +440,11 @@ function App() {
               <button className="control-button" onClick={() => setIsModalOpen(true)} title="Share & Info">
                 INFO
               </button>
+              {!isStreamingComplete && (
+                <div className="streaming-badge" title="Streaming animation chunks in background">
+                  <span className="streaming-dot"></span> STREAMING {streamingProgress}%
+                </div>
+              )}
             </div>
             
             <div className="controls-row secondary-row">
@@ -555,7 +593,7 @@ function App() {
           )}
         </>
       )}
-    </div>
+    </main>
   );
 }
 

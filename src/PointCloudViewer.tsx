@@ -21,12 +21,14 @@ export function PointCloudViewer({
   audioRef,
   isPlaying,
   dataBuffer,
+  loadedBytes,
   colors,
   frameDataRef
 }: { 
   audioRef: React.RefObject<HTMLAudioElement | null>,
   isPlaying: boolean,
   dataBuffer: ArrayBuffer,
+  loadedBytes?: number,
   colors: { colorA: string, colorB: string, colorC: string },
   frameDataRef?: React.MutableRefObject<{ positions: Float32Array; intensities: Float32Array; numPoints: number; frameIndex: number } | null>
 }) {
@@ -37,7 +39,9 @@ export function PointCloudViewer({
   const { frames, floatData, isQuantized } = useMemo(() => {
     if (!dataBuffer) return { frames: [] as FrameData[], floatData: null, isQuantized: false };
     
-    console.time('parse_binary');
+    const effectiveLoadedBytes = loadedBytes !== undefined ? loadedBytes : dataBuffer.byteLength;
+    if (effectiveLoadedBytes < 8) return { frames: [] as FrameData[], floatData: null, isQuantized: false };
+
     const dataview = new DataView(dataBuffer);
     const magicView = new Uint8Array(dataBuffer, 0, 4);
     const isQuant = magicView[0] === 0x48 && magicView[1] === 0x4F && magicView[2] === 0x43 && magicView[3] === 0x51; // 'HOCQ'
@@ -49,9 +53,15 @@ export function PointCloudViewer({
       const numFrames = dataview.getUint32(4, true);
       let byteOffset = 8;
       for (let i = 0; i < numFrames; i++) {
-        const numPoints = dataview.getUint32(byteOffset, true);
-        const hOffset = byteOffset + 4;
+        if (byteOffset + 28 > effectiveLoadedBytes) break;
 
+        const numPoints = dataview.getUint32(byteOffset, true);
+        if (numPoints === 0 || numPoints > MAX_POINTS * 2) break;
+
+        const frameSize = 28 + numPoints * 8;
+        if (byteOffset + frameSize > effectiveLoadedBytes) break;
+
+        const hOffset = byteOffset + 4;
         const frameMinX = dataview.getFloat32(hOffset, true);
         const frameMaxX = dataview.getFloat32(hOffset + 4, true);
         const frameMinY = dataview.getFloat32(hOffset + 8, true);
@@ -69,7 +79,7 @@ export function PointCloudViewer({
           frameMinZ,
           rangeZ: frameMaxZ - frameMinZ || 1,
         });
-        byteOffset += 28 + numPoints * 8;
+        byteOffset += frameSize;
       }
     } else {
       const headerView = new Uint32Array(dataBuffer, 0, 1);
@@ -77,20 +87,23 @@ export function PointCloudViewer({
       
       let byteOffset = 4;
       for (let i = 0; i < numFrames; i++) {
+        if (byteOffset + 4 > effectiveLoadedBytes) break;
         const numPoints = dataview.getUint32(byteOffset, true);
+        const frameSize = 4 + numPoints * 16;
+        if (byteOffset + frameSize > effectiveLoadedBytes) break;
+
         parsedFrames.push({
           numPoints,
           byteOffset: byteOffset + 4,
           floatOffset: (byteOffset + 4) / 4
         });
-        byteOffset += 4 + numPoints * 16;
+        byteOffset += frameSize;
       }
       parsedFloatData = new Float32Array(dataBuffer);
     }
     
-    console.timeEnd('parse_binary');
     return { frames: parsedFrames, floatData: parsedFloatData, isQuantized: isQuant };
-  }, [dataBuffer]);
+  }, [dataBuffer, loadedBytes]);
 
   // Static initial buffers for geometry attributes
   const initialPositions = useMemo(() => new Float32Array(MAX_POINTS * 3), []);
