@@ -8,9 +8,10 @@ export default defineConfig({
     chunkSizeWarningLimit: 1600,
     rollupOptions: {
       output: {
-        manualChunks: {
-          three: ['three', '@react-three/fiber', '@react-three/drei', '@react-three/postprocessing'],
-          react: ['react', 'react-dom'],
+        manualChunks(id) {
+          if (id.includes('node_modules/three') || id.includes('node_modules/@react-three') || id.includes('node_modules/three-stdlib') || id.includes('node_modules/postprocessing')) {
+            return 'three';
+          }
         },
       },
     },

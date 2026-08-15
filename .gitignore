@@ -29,3 +29,8 @@ public/data/*.bin.br
 public/data/*.bin.gz
 !public/data/chunks/*.bin
 data/*.zip
+
+# Cloudflare & temporary artifacts
+.wrangler
+1.1.0
+

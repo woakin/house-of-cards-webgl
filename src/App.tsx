@@ -263,9 +263,10 @@ function App() {
         
         chunks.length = 0;
         setDataBuffer(combined.buffer);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Failed to load frames data:', err);
-        setLoadError(err?.message || 'Failed to connect to data server. Please check your network connection.');
+        const errorMessage = err instanceof Error ? err.message : 'Failed to connect to data server. Please check your network connection.';
+        setLoadError(errorMessage);
       }
     };
     
@@ -488,16 +489,16 @@ function App() {
 
               <div className="color-pickers-container">
                 <div className="color-picker-group">
-                  <label>Foreground</label>
-                  <input type="color" value={colors.colorC} onChange={e => setColors(prev => ({...prev, colorC: e.target.value}))} />
+                  <label htmlFor="color-fg">Foreground</label>
+                  <input id="color-fg" name="color-fg" type="color" value={colors.colorC} onChange={e => setColors(prev => ({...prev, colorC: e.target.value}))} aria-label="Foreground color" />
                 </div>
                 <div className="color-picker-group">
-                  <label>Midground</label>
-                  <input type="color" value={colors.colorB} onChange={e => setColors(prev => ({...prev, colorB: e.target.value}))} />
+                  <label htmlFor="color-mg">Midground</label>
+                  <input id="color-mg" name="color-mg" type="color" value={colors.colorB} onChange={e => setColors(prev => ({...prev, colorB: e.target.value}))} aria-label="Midground color" />
                 </div>
                 <div className="color-picker-group">
-                  <label>Background</label>
-                  <input type="color" value={colors.colorA} onChange={e => setColors(prev => ({...prev, colorA: e.target.value}))} />
+                  <label htmlFor="color-bg">Background</label>
+                  <input id="color-bg" name="color-bg" type="color" value={colors.colorA} onChange={e => setColors(prev => ({...prev, colorA: e.target.value}))} aria-label="Background color" />
                 </div>
               </div>
             </div>
@@ -539,7 +540,7 @@ function App() {
                   </ul>
                   
                   <div className="share-section">
-                    <input type="text" readOnly value={window.location.origin + '/'} className="share-input" />
+                    <input id="share-url-input" name="share-url" type="text" readOnly value={window.location.origin + '/'} className="share-input" aria-label="Shareable link URL" />
                     <button className="copy-button" onClick={handleCopyLink}>{isCopied ? 'COPIED!' : 'COPY LINK'}</button>
                   </div>
                 </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
@@ -34,24 +34,20 @@ export function PointCloudViewer({
   const geomRef = useRef<THREE.BufferGeometry>(null);
 
   // Parse the binary header to index the frames
-  const [frames, setFrames] = useState<FrameData[]>([]);
-  const [floatData, setFloatData] = useState<Float32Array | null>(null);
-  const isQuantizedRef = useRef(false);
-  
-  useEffect(() => {
-    if (!dataBuffer) return;
+  const { frames, floatData, isQuantized } = useMemo(() => {
+    if (!dataBuffer) return { frames: [] as FrameData[], floatData: null, isQuantized: false };
     
     console.time('parse_binary');
     const dataview = new DataView(dataBuffer);
     const magicView = new Uint8Array(dataBuffer, 0, 4);
     const isQuant = magicView[0] === 0x48 && magicView[1] === 0x4F && magicView[2] === 0x43 && magicView[3] === 0x51; // 'HOCQ'
 
+    const parsedFrames: FrameData[] = [];
+    let parsedFloatData: Float32Array | null = null;
+
     if (isQuant) {
       const numFrames = dataview.getUint32(4, true);
-      isQuantizedRef.current = true;
-
       let byteOffset = 8;
-      const parsedFrames: FrameData[] = [];
       for (let i = 0; i < numFrames; i++) {
         const numPoints = dataview.getUint32(byteOffset, true);
         const hOffset = byteOffset + 4;
@@ -75,15 +71,11 @@ export function PointCloudViewer({
         });
         byteOffset += 28 + numPoints * 8;
       }
-      setFrames(parsedFrames);
     } else {
-      isQuantizedRef.current = false;
       const headerView = new Uint32Array(dataBuffer, 0, 1);
       const numFrames = headerView[0];
       
       let byteOffset = 4;
-      const parsedFrames: FrameData[] = [];
-      
       for (let i = 0; i < numFrames; i++) {
         const numPoints = dataview.getUint32(byteOffset, true);
         parsedFrames.push({
@@ -93,21 +85,16 @@ export function PointCloudViewer({
         });
         byteOffset += 4 + numPoints * 16;
       }
-      
-      setFrames(parsedFrames);
-      setFloatData(new Float32Array(dataBuffer));
+      parsedFloatData = new Float32Array(dataBuffer);
     }
     
     console.timeEnd('parse_binary');
+    return { frames: parsedFrames, floatData: parsedFloatData, isQuantized: isQuant };
   }, [dataBuffer]);
 
-  // Pre-allocate geometry attributes
-  const [positions, intensities] = useMemo(() => {
-    return [
-      new Float32Array(MAX_POINTS * 3),
-      new Float32Array(MAX_POINTS * 1),
-    ];
-  }, []);
+  // Static initial buffers for geometry attributes
+  const initialPositions = useMemo(() => new Float32Array(MAX_POINTS * 3), []);
+  const initialIntensities = useMemo(() => new Float32Array(MAX_POINTS * 1), []);
 
   const dataView = useMemo(() => {
     return dataBuffer ? new DataView(dataBuffer) : null;
@@ -125,9 +112,9 @@ export function PointCloudViewer({
 
   const shaderMaterial = useMemo(() => new THREE.ShaderMaterial({
     uniforms: {
-      colorA: { value: new THREE.Color(colors.colorA) },
-      colorB: { value: new THREE.Color(colors.colorB) },
-      colorC: { value: new THREE.Color(colors.colorC) },
+      colorA: { value: new THREE.Color('#4facfe') },
+      colorB: { value: new THREE.Color('#00f2fe') },
+      colorC: { value: new THREE.Color('#f093fb') },
       pointSize: { value: 2.8 },
     },
     vertexShader: `
@@ -180,7 +167,7 @@ export function PointCloudViewer({
   }), []);
 
   useFrame(() => {
-    if (!audioRef.current || frames.length === 0 || !dataBuffer || !dataView) return;
+    if (!audioRef.current || frames.length === 0 || !dataBuffer || !dataView || !geomRef.current) return;
     
     const time = (!isPlaying && audioRef.current.currentTime === 0) 
       ? 14.0 
@@ -201,8 +188,15 @@ export function PointCloudViewer({
       
       const numPoints = frame.numPoints;
       const pointsToProcess = Math.min(numPoints, MAX_POINTS);
+
+      const posAttr = geomRef.current.attributes.position;
+      const intAttr = geomRef.current.attributes.intensity;
+      if (!posAttr || !intAttr) return;
+
+      const positions = posAttr.array as Float32Array;
+      const intensities = intAttr.array as Float32Array;
       
-      if (isQuantizedRef.current && frame.frameMinX !== undefined && u16View && u8View) {
+      if (isQuantized && frame.frameMinX !== undefined && u16View && u8View) {
         const frameMinX = frame.frameMinX;
         const frameMinY = frame.frameMinY!;
         const frameMinZ = frame.frameMinZ!;
@@ -240,11 +234,9 @@ export function PointCloudViewer({
         }
       }
       
-      if (geomRef.current) {
-        geomRef.current.attributes.position.needsUpdate = true;
-        geomRef.current.attributes.intensity.needsUpdate = true;
-        geomRef.current.setDrawRange(0, pointsToProcess);
-      }
+      posAttr.needsUpdate = true;
+      intAttr.needsUpdate = true;
+      geomRef.current.setDrawRange(0, pointsToProcess);
       
       currentFrameRef.current = targetFrame;
 
@@ -260,10 +252,11 @@ export function PointCloudViewer({
   });
 
   useEffect(() => {
+    const geom = geomRef.current;
     return () => {
       shaderMaterial.dispose();
-      if (geomRef.current) {
-        geomRef.current.dispose();
+      if (geom) {
+        geom.dispose();
       }
     };
   }, [shaderMaterial]);
@@ -281,11 +274,11 @@ export function PointCloudViewer({
       <bufferGeometry ref={geomRef}>
         <bufferAttribute 
           attach="attributes-position"
-          args={[positions, 3]}
+          args={[initialPositions, 3]}
         />
         <bufferAttribute 
           attach="attributes-intensity"
-          args={[intensities, 1]}
+          args={[initialIntensities, 1]}
         />
       </bufferGeometry>
       <primitive object={shaderMaterial} attach="material" />
