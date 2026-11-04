@@ -72,7 +72,7 @@ function CameraMovement({ controlsRef }: { controlsRef: React.RefObject<OrbitCon
 function App() {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const [dataBuffer, setDataBuffer] = useState<ArrayBuffer | null>(null);
-  const [loadedBytes, setLoadedBytes] = useState<number>(0);
+  const loadedBytesRef = useRef<number>(0);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [streamingProgress, setStreamingProgress] = useState(0);
   const [isStreamingComplete, setIsStreamingComplete] = useState(false);
@@ -146,22 +146,40 @@ function App() {
 
   useEffect(() => {
     let timeoutId: number;
+    let lastResetTime = 0;
+    let currentlyIdle = false;
+
     const resetIdle = (e?: Event) => {
-      setIsIdle(false);
       // Determine if it's a direct interaction (not just a hovering mouse)
       if (e && ['mousedown', 'keydown', 'touchstart', 'wheel'].includes(e.type)) {
         setHasInteracted(true);
       }
+
+      const now = performance.now();
+      if (!currentlyIdle && now - lastResetTime < 250) {
+        return;
+      }
+      lastResetTime = now;
+
+      if (currentlyIdle) {
+        currentlyIdle = false;
+        setIsIdle(false);
+      }
+
       window.clearTimeout(timeoutId);
-      timeoutId = window.setTimeout(() => setIsIdle(true), 3000);
+      timeoutId = window.setTimeout(() => {
+        currentlyIdle = true;
+        setIsIdle(true);
+      }, 3000);
     };
 
     resetIdle();
-    window.addEventListener('mousemove', resetIdle);
-    window.addEventListener('keydown', resetIdle);
-    window.addEventListener('touchstart', resetIdle);
-    window.addEventListener('wheel', resetIdle);
-    window.addEventListener('mousedown', resetIdle);
+    const passiveOpts = { passive: true } as const;
+    window.addEventListener('mousemove', resetIdle, passiveOpts);
+    window.addEventListener('keydown', resetIdle, passiveOpts);
+    window.addEventListener('touchstart', resetIdle, passiveOpts);
+    window.addEventListener('wheel', resetIdle, passiveOpts);
+    window.addEventListener('mousedown', resetIdle, passiveOpts);
 
     return () => {
       window.clearTimeout(timeoutId);
@@ -217,22 +235,33 @@ function App() {
   const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
+    let isCancelled = false;
+    const effectController = new AbortController();
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let cleanupListeners: (() => void) | undefined;
+
     // Helper for resilient chunk fetching with retry and timeout
     const fetchWithRetry = async (url: string, retries = 3, delayMs = 600): Promise<Response> => {
       let lastError: unknown = null;
       for (let attempt = 1; attempt <= retries; attempt++) {
+        if (isCancelled) throw new DOMException('Aborted', 'AbortError');
+        const controller = new AbortController();
+        const onEffectAbort = () => controller.abort();
+        effectController.signal.addEventListener('abort', onEffectAbort, { once: true });
+        const timeoutId = setTimeout(() => controller.abort(), 25000);
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 25000);
           const res = await fetch(url, { signal: controller.signal });
-          clearTimeout(timeoutId);
           if (res.ok) return res;
           throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         } catch (err) {
+          if (isCancelled) throw err;
           lastError = err;
           if (attempt < retries) {
             await new Promise(r => setTimeout(r, delayMs * attempt));
           }
+        } finally {
+          clearTimeout(timeoutId);
+          effectController.signal.removeEventListener('abort', onEffectAbort);
         }
       }
       throw lastError || new Error(`Failed to load: ${url}`);
@@ -248,8 +277,12 @@ function App() {
       try {
         // Try loading chunked manifest first (for Cloudflare Pages & high performance CDN)
         const manifestRes = await fetchWithRetry('/data/chunks/manifest.json');
+        if (isCancelled) return;
+
         if (manifestRes.ok) {
           const manifest = await manifestRes.json();
+          if (isCancelled) return;
+
           const totalSize = manifest.totalSize || 204880764;
           const chunkList: { file: string; size?: number }[] = manifest.chunks || [];
 
@@ -261,42 +294,66 @@ function App() {
           // 1. Fetch initial chunk for instantaneous scene initialization
           const chunk0Res = await fetchWithRetry(chunkList[0].file);
           const chunk0Buf = await chunk0Res.arrayBuffer();
+          if (isCancelled) return;
+
           combined.set(new Uint8Array(chunk0Buf), 0);
 
-          let currentLoaded = chunk0Buf.byteLength;
-          setLoadedBytes(currentLoaded);
+          let contiguousLoaded = chunk0Buf.byteLength;
+          loadedBytesRef.current = contiguousLoaded;
           setLoadingProgress(100);
-          setStreamingProgress(Math.min(100, Math.round((currentLoaded / totalSize) * 100)));
+          let lastReportedProgress = Math.min(100, Math.round((contiguousLoaded / totalSize) * 100));
+          setStreamingProgress(lastReportedProgress);
           setDataBuffer(combined.buffer); // Scene mounts and becomes interactive immediately!
 
           // 2. Stream remaining chunks on idle / play without blocking initial load
           let isStreamingActive = false;
           const startBackgroundStreaming = () => {
-            if (isStreamingActive) return;
+            if (isStreamingActive || isCancelled) return;
             isStreamingActive = true;
-            let offset = currentLoaded;
+            let expectedOffset = contiguousLoaded;
+            let hasMissingChunk = false;
+
             (async () => {
               for (let i = 1; i < chunkList.length; i++) {
+                if (isCancelled) return;
+                const chunkMeta = chunkList[i];
+                const chunkOffset = expectedOffset;
+                const fallbackChunkSize = chunkMeta.size ?? 4 * 1024 * 1024;
+
                 try {
-                  const chunkRes = await fetchWithRetry(chunkList[i].file, 3, 800);
+                  const chunkRes = await fetchWithRetry(chunkMeta.file, 4, 800);
                   const buf = await chunkRes.arrayBuffer();
-                  combined.set(new Uint8Array(buf), offset);
-                  offset += buf.byteLength;
-                  currentLoaded = offset;
-                  setLoadedBytes(currentLoaded);
-                  setStreamingProgress(Math.min(100, Math.round((currentLoaded / totalSize) * 100)));
-                  // Brief micro-yield to keep UI & 60fps WebGL loop responsive
-                  await new Promise(r => setTimeout(r, 20));
+                  if (isCancelled) return;
+
+                  combined.set(new Uint8Array(buf), chunkOffset);
+                  expectedOffset = chunkOffset + buf.byteLength;
+
+                  // Only advance contiguous loaded bytes if no prior chunk failed
+                  if (!hasMissingChunk) {
+                    contiguousLoaded = expectedOffset;
+                    loadedBytesRef.current = contiguousLoaded;
+                    const nextProgress = Math.min(100, Math.round((contiguousLoaded / totalSize) * 100));
+                    if (nextProgress - lastReportedProgress >= 2 || nextProgress === 100) {
+                      lastReportedProgress = nextProgress;
+                      setStreamingProgress(nextProgress);
+                    }
+                  }
                 } catch (streamErr) {
-                  console.warn('Background chunk streaming warning:', streamErr);
+                  if (isCancelled) return;
+                  hasMissingChunk = true;
+                  expectedOffset = chunkOffset + fallbackChunkSize;
+                  console.warn(`Background chunk streaming warning (${chunkMeta.file}):`, streamErr);
                 }
               }
-              setIsStreamingComplete(true);
+              if (!isCancelled && !hasMissingChunk) {
+                setStreamingProgress(100);
+                setIsStreamingComplete(true);
+              }
             })();
           };
 
-          // Schedule background streaming after initial render settles or upon first interaction
-          const idleTimer = setTimeout(startBackgroundStreaming, 2500);
+          // Schedule background streaming shortly after initial render or upon first interaction
+          idleTimer = setTimeout(startBackgroundStreaming, 800);
           const handleFirstPlay = () => {
             clearTimeout(idleTimer);
             startBackgroundStreaming();
@@ -305,13 +362,17 @@ function App() {
           };
           window.addEventListener('click', handleFirstPlay, { once: true });
           window.addEventListener('keydown', handleFirstPlay, { once: true });
+          cleanupListeners = () => {
+            window.removeEventListener('click', handleFirstPlay);
+            window.removeEventListener('keydown', handleFirstPlay);
+          };
           return;
         }
 
         // Fallback for single raw binary file
-        let response = await fetch('/data/frames_quantized.bin');
+        let response = await fetch('/data/frames_quantized.bin', { signal: effectController.signal });
         if (!response.ok) {
-          response = await fetch('/data/frames.bin');
+          response = await fetch('/data/frames.bin', { signal: effectController.signal });
         }
         if (!response.ok) {
           throw new Error(`Data server error (${response.status}): Failed to locate binary frames`);
@@ -328,7 +389,7 @@ function App() {
         
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done || isCancelled) break;
           
           if (value) {
             chunks.push(value);
@@ -338,6 +399,7 @@ function App() {
             }
           }
         }
+        if (isCancelled) return;
         
         const combined = new Uint8Array(loaded);
         let pos = 0;
@@ -347,11 +409,12 @@ function App() {
         }
         
         chunks.length = 0;
-        setLoadedBytes(loaded);
+        loadedBytesRef.current = loaded;
         setStreamingProgress(100);
         setIsStreamingComplete(true);
         setDataBuffer(combined.buffer);
       } catch (err: unknown) {
+        if (isCancelled) return;
         console.error('Failed to load frames data:', err);
         const errorMessage = err instanceof Error ? err.message : 'Failed to connect to data server. Please check your network connection.';
         setLoadError(errorMessage);
@@ -359,6 +422,13 @@ function App() {
     };
     
     loadData();
+
+    return () => {
+      isCancelled = true;
+      effectController.abort();
+      if (idleTimer !== undefined) clearTimeout(idleTimer);
+      cleanupListeners?.();
+    };
   }, [retryCount]);
 
   const togglePlay = useCallback(() => {
@@ -416,7 +486,8 @@ function App() {
         ref={audioRef} 
         src="/data/HouseOfCards_DataSample.mp3" 
         preload="auto"
-        onEnded={() => setIsPlaying(false)}
+        onPause={() => setIsPlaying(false)}
+        onPlay={() => setIsPlaying(true)}
         loop
       />
       
@@ -454,7 +525,7 @@ function App() {
               audioRef={audioRef}
               isPlaying={isPlaying}
               dataBuffer={dataBuffer}
-              loadedBytes={loadedBytes}
+              loadedBytesRef={loadedBytesRef}
               colors={colors}
               frameDataRef={frameDataRef}
             />

@@ -3,7 +3,8 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
 const FPS = 30; // Assuming 30 frames per second
-const MAX_POINTS = 35000; // Pre-allocate buffer safely for large frames
+const MAX_POINTS = 15000; // Dataset max is 12,521 points per frame
+const INITIAL_PREVIEW_FRAME = 41; // Guaranteed within chunk_v2_00.bin (42 frames)
 
 interface FrameData {
   numPoints: number;
@@ -17,11 +18,83 @@ interface FrameData {
   rangeZ?: number;
 }
 
+interface ParserState {
+  buffer: ArrayBuffer | null;
+  dataview: DataView | null;
+  floatData: Float32Array | null;
+  isQuantized: boolean;
+  totalFrames: number;
+  nextByteOffset: number;
+  lastParsedBytes: number;
+  frames: FrameData[];
+}
+
+function advanceFrameParser(state: ParserState, effectiveLoadedBytes: number): void {
+  if (!state.dataview || effectiveLoadedBytes <= state.lastParsedBytes) return;
+
+  const dataview = state.dataview;
+  const frames = state.frames;
+  const totalFrames = state.totalFrames;
+  let byteOffset = state.nextByteOffset;
+
+  if (state.isQuantized) {
+    while (frames.length < totalFrames) {
+      if (byteOffset + 28 > effectiveLoadedBytes) break;
+
+      const numPoints = dataview.getUint32(byteOffset, true);
+      if (numPoints === 0 || numPoints > MAX_POINTS * 2) break;
+
+      const frameSize = 28 + numPoints * 8;
+      if (byteOffset + frameSize > effectiveLoadedBytes) break;
+
+      const hOffset = byteOffset + 4;
+      const frameMinX = dataview.getFloat32(hOffset, true);
+      const frameMaxX = dataview.getFloat32(hOffset + 4, true);
+      const frameMinY = dataview.getFloat32(hOffset + 8, true);
+      const frameMaxY = dataview.getFloat32(hOffset + 12, true);
+      const frameMinZ = dataview.getFloat32(hOffset + 16, true);
+      const frameMaxZ = dataview.getFloat32(hOffset + 20, true);
+
+      frames.push({
+        numPoints,
+        byteOffset: byteOffset + 28,
+        frameMinX,
+        rangeX: frameMaxX - frameMinX || 1,
+        frameMinY,
+        rangeY: frameMaxY - frameMinY || 1,
+        frameMinZ,
+        rangeZ: frameMaxZ - frameMinZ || 1,
+      });
+      byteOffset += frameSize;
+    }
+  } else {
+    while (frames.length < totalFrames) {
+      if (byteOffset + 4 > effectiveLoadedBytes) break;
+      const numPoints = dataview.getUint32(byteOffset, true);
+      if (numPoints === 0 || numPoints > MAX_POINTS * 2) break;
+
+      const frameSize = 4 + numPoints * 16;
+      if (byteOffset + frameSize > effectiveLoadedBytes) break;
+
+      frames.push({
+        numPoints,
+        byteOffset: byteOffset + 4,
+        floatOffset: (byteOffset + 4) / 4,
+      });
+      byteOffset += frameSize;
+    }
+  }
+
+  state.nextByteOffset = byteOffset;
+  state.lastParsedBytes = effectiveLoadedBytes;
+}
+
 export function PointCloudViewer({ 
   audioRef,
   isPlaying,
   dataBuffer,
   loadedBytes,
+  loadedBytesRef,
   colors,
   frameDataRef
 }: { 
@@ -29,89 +102,52 @@ export function PointCloudViewer({
   isPlaying: boolean,
   dataBuffer: ArrayBuffer,
   loadedBytes?: number,
+  loadedBytesRef?: React.RefObject<number>,
   colors: { colorA: string, colorB: string, colorC: string },
   frameDataRef?: React.MutableRefObject<{ positions: Float32Array; intensities: Float32Array; numPoints: number; frameIndex: number } | null>
 }) {
   const pointsRef = useRef<THREE.Points>(null);
   const geomRef = useRef<THREE.BufferGeometry>(null);
 
-  // Parse the binary header to index the frames
-  const { frames, floatData, isQuantized } = useMemo(() => {
-    if (!dataBuffer) return { frames: [] as FrameData[], floatData: null, isQuantized: false };
-    
-    const effectiveLoadedBytes = loadedBytes !== undefined ? loadedBytes : dataBuffer.byteLength;
-    if (effectiveLoadedBytes < 8) return { frames: [] as FrameData[], floatData: null, isQuantized: false };
+  // Incremental frame header parser state (parses each frame exactly once across chunks)
+  const parserState = useMemo<ParserState>(() => {
+    if (!dataBuffer || dataBuffer.byteLength < 8) {
+      return {
+        buffer: null,
+        dataview: null,
+        floatData: null,
+        isQuantized: false,
+        totalFrames: 0,
+        nextByteOffset: 0,
+        lastParsedBytes: 0,
+        frames: [],
+      };
+    }
 
     const dataview = new DataView(dataBuffer);
     const magicView = new Uint8Array(dataBuffer, 0, 4);
-    const isQuant = magicView[0] === 0x48 && magicView[1] === 0x4F && magicView[2] === 0x43 && magicView[3] === 0x51; // 'HOCQ'
+    const isQuant =
+      magicView[0] === 0x48 &&
+      magicView[1] === 0x4f &&
+      magicView[2] === 0x43 &&
+      magicView[3] === 0x51; // 'HOCQ'
 
-    const parsedFrames: FrameData[] = [];
-    let parsedFloatData: Float32Array | null = null;
-
-    if (isQuant) {
-      const numFrames = dataview.getUint32(4, true);
-      let byteOffset = 8;
-      for (let i = 0; i < numFrames; i++) {
-        if (byteOffset + 28 > effectiveLoadedBytes) break;
-
-        const numPoints = dataview.getUint32(byteOffset, true);
-        if (numPoints === 0 || numPoints > MAX_POINTS * 2) break;
-
-        const frameSize = 28 + numPoints * 8;
-        if (byteOffset + frameSize > effectiveLoadedBytes) break;
-
-        const hOffset = byteOffset + 4;
-        const frameMinX = dataview.getFloat32(hOffset, true);
-        const frameMaxX = dataview.getFloat32(hOffset + 4, true);
-        const frameMinY = dataview.getFloat32(hOffset + 8, true);
-        const frameMaxY = dataview.getFloat32(hOffset + 12, true);
-        const frameMinZ = dataview.getFloat32(hOffset + 16, true);
-        const frameMaxZ = dataview.getFloat32(hOffset + 20, true);
-
-        parsedFrames.push({
-          numPoints,
-          byteOffset: byteOffset + 28,
-          frameMinX,
-          rangeX: frameMaxX - frameMinX || 1,
-          frameMinY,
-          rangeY: frameMaxY - frameMinY || 1,
-          frameMinZ,
-          rangeZ: frameMaxZ - frameMinZ || 1,
-        });
-        byteOffset += frameSize;
-      }
-    } else {
-      const headerView = new Uint32Array(dataBuffer, 0, 1);
-      const numFrames = headerView[0];
-      
-      let byteOffset = 4;
-      for (let i = 0; i < numFrames; i++) {
-        if (byteOffset + 4 > effectiveLoadedBytes) break;
-        const numPoints = dataview.getUint32(byteOffset, true);
-        const frameSize = 4 + numPoints * 16;
-        if (byteOffset + frameSize > effectiveLoadedBytes) break;
-
-        parsedFrames.push({
-          numPoints,
-          byteOffset: byteOffset + 4,
-          floatOffset: (byteOffset + 4) / 4
-        });
-        byteOffset += frameSize;
-      }
-      parsedFloatData = new Float32Array(dataBuffer);
-    }
-    
-    return { frames: parsedFrames, floatData: parsedFloatData, isQuantized: isQuant };
-  }, [dataBuffer, loadedBytes]);
+    const totalFrames = isQuant ? dataview.getUint32(4, true) : dataview.getUint32(0, true);
+    return {
+      buffer: dataBuffer,
+      dataview,
+      floatData: isQuant ? null : new Float32Array(dataBuffer),
+      isQuantized: isQuant,
+      totalFrames,
+      nextByteOffset: isQuant ? 8 : 4,
+      lastParsedBytes: 0,
+      frames: [],
+    };
+  }, [dataBuffer]);
 
   // Static initial buffers for geometry attributes
   const initialPositions = useMemo(() => new Float32Array(MAX_POINTS * 3), []);
   const initialIntensities = useMemo(() => new Float32Array(MAX_POINTS * 1), []);
-
-  const dataView = useMemo(() => {
-    return dataBuffer ? new DataView(dataBuffer) : null;
-  }, [dataBuffer]);
 
   const u8View = useMemo(() => {
     return dataBuffer ? new Uint8Array(dataBuffer) : null;
@@ -180,77 +216,88 @@ export function PointCloudViewer({
   }), []);
 
   useFrame(() => {
-    if (!audioRef.current || frames.length === 0 || !dataBuffer || !dataView || !geomRef.current) return;
-    
-    const time = (!isPlaying && audioRef.current.currentTime === 0) 
-      ? 14.0 
-      : audioRef.current.currentTime;
+    if (!audioRef.current || !dataBuffer || !geomRef.current) return;
 
-    let targetFrame = Math.floor(time * FPS);
-    
-    if (targetFrame >= frames.length) {
-      targetFrame = frames.length - 1;
+    const currentLoaded = loadedBytesRef?.current ?? loadedBytes ?? dataBuffer.byteLength;
+    if (currentLoaded > parserState.lastParsedBytes) {
+      advanceFrameParser(parserState, currentLoaded);
     }
-    if (targetFrame < 0) {
-      targetFrame = 0;
+
+    const { frames, floatData, isQuantized } = parserState;
+    if (frames.length === 0) return;
+
+    let targetFrame: number;
+    if (!isPlaying && audioRef.current.currentTime === 0) {
+      targetFrame = Math.min(INITIAL_PREVIEW_FRAME, frames.length - 1);
+    } else {
+      targetFrame = Math.floor(audioRef.current.currentTime * FPS);
+      if (targetFrame >= frames.length) {
+        targetFrame = frames.length - 1;
+      } else if (targetFrame < 0) {
+        targetFrame = 0;
+      }
     }
-    
+
     if (targetFrame !== currentFrameRef.current) {
       const frame = frames[targetFrame];
       if (!frame) return;
-      
+
       const numPoints = frame.numPoints;
       const pointsToProcess = Math.min(numPoints, MAX_POINTS);
 
-      const posAttr = geomRef.current.attributes.position;
-      const intAttr = geomRef.current.attributes.intensity;
+      const posAttr = geomRef.current.attributes.position as THREE.BufferAttribute | undefined;
+      const intAttr = geomRef.current.attributes.intensity as THREE.BufferAttribute | undefined;
       if (!posAttr || !intAttr) return;
 
       const positions = posAttr.array as Float32Array;
       const intensities = intAttr.array as Float32Array;
-      
+
       if (isQuantized && frame.frameMinX !== undefined && u16View && u8View) {
         const frameMinX = frame.frameMinX;
         const frameMinY = frame.frameMinY!;
         const frameMinZ = frame.frameMinZ!;
-        const rangeX = frame.rangeX!;
-        const rangeY = frame.rangeY!;
-        const rangeZ = frame.rangeZ!;
-        
-        const pointsStart = frame.byteOffset;
-        const inv65535 = 1 / 65535;
+        const scaleX = frame.rangeX! / 65535;
+        const scaleY = frame.rangeY! / 65535;
+        const scaleZ = frame.rangeZ! / 65535;
+
+        let pOffset = frame.byteOffset + 6;
+        let u16Idx = frame.byteOffset >> 1;
+        let outIdx = 0;
 
         for (let i = 0; i < pointsToProcess; i++) {
-          const pOffset = pointsStart + i * 8;
-          const u16Idx = pOffset >> 1;
-          const qX = u16View[u16Idx];
-          const qY = u16View[u16Idx + 1];
-          const qZ = u16View[u16Idx + 2];
-          const intensity = u8View[pOffset + 6];
+          positions[outIdx] = frameMinX + u16View[u16Idx] * scaleX;
+          positions[outIdx + 1] = frameMinY + u16View[u16Idx + 1] * scaleY;
+          positions[outIdx + 2] = frameMinZ + u16View[u16Idx + 2] * scaleZ;
+          intensities[i] = u8View[pOffset];
 
-          positions[i * 3] = frameMinX + (qX * inv65535) * rangeX;
-          positions[i * 3 + 1] = frameMinY + (qY * inv65535) * rangeY;
-          positions[i * 3 + 2] = frameMinZ + (qZ * inv65535) * rangeZ;
-
-          intensities[i] = intensity;
+          u16Idx += 4;
+          pOffset += 8;
+          outIdx += 3;
         }
       } else if (floatData && frame.floatOffset !== undefined) {
-        const frameStart = frame.floatOffset;
+        let floatIdx = frame.floatOffset;
+        let outIdx = 0;
         for (let i = 0; i < pointsToProcess; i++) {
-          const floatIdx = frameStart + i * 4;
-          
-          positions[i * 3] = floatData[floatIdx];
-          positions[i * 3 + 1] = floatData[floatIdx + 1];
-          positions[i * 3 + 2] = floatData[floatIdx + 2];
-          
+          positions[outIdx] = floatData[floatIdx];
+          positions[outIdx + 1] = floatData[floatIdx + 1];
+          positions[outIdx + 2] = floatData[floatIdx + 2];
           intensities[i] = floatData[floatIdx + 3];
+
+          floatIdx += 4;
+          outIdx += 3;
         }
       }
-      
+
+      posAttr.clearUpdateRanges();
+      posAttr.addUpdateRange(0, pointsToProcess * 3);
       posAttr.needsUpdate = true;
+
+      intAttr.clearUpdateRanges();
+      intAttr.addUpdateRange(0, pointsToProcess);
       intAttr.needsUpdate = true;
+
       geomRef.current.setDrawRange(0, pointsToProcess);
-      
+
       currentFrameRef.current = targetFrame;
 
       if (frameDataRef) {
@@ -280,7 +327,7 @@ export function PointCloudViewer({
     shaderMaterial.uniforms.colorC.value.set(colors.colorC);
   }, [colors, shaderMaterial]);
 
-  if (frames.length === 0) return null;
+  if (parserState.totalFrames === 0) return null;
 
   return (
     <points ref={pointsRef} rotation={[0, 0, Math.PI]} position={[80, 150, 0]}>
@@ -288,10 +335,12 @@ export function PointCloudViewer({
         <bufferAttribute 
           attach="attributes-position"
           args={[initialPositions, 3]}
+          usage={THREE.DynamicDrawUsage}
         />
         <bufferAttribute 
           attach="attributes-intensity"
           args={[initialIntensities, 1]}
+          usage={THREE.DynamicDrawUsage}
         />
       </bufferGeometry>
       <primitive object={shaderMaterial} attach="material" />

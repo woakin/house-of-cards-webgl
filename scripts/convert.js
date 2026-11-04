@@ -78,37 +78,33 @@ for (let i = 0; i < files.length; i++) {
   const rangeY = frameMaxY - frameMinY || 1;
   const rangeZ = frameMaxZ - frameMinZ || 1;
   
-  // Frame Header: 28 bytes
-  // numPoints (4B) + frameMinX, frameMaxX, frameMinY, frameMaxY, frameMinZ, frameMaxZ (24B)
-  const frameHeader = Buffer.alloc(28);
-  frameHeader.writeUInt32LE(numPoints, 0);
-  frameHeader.writeFloatLE(frameMinX, 4);
-  frameHeader.writeFloatLE(frameMaxX, 8);
-  frameHeader.writeFloatLE(frameMinY, 12);
-  frameHeader.writeFloatLE(frameMaxY, 16);
-  frameHeader.writeFloatLE(frameMinZ, 20);
-  frameHeader.writeFloatLE(frameMaxZ, 24);
+  // Frame Header (28 bytes) + Frame Points (numPoints * 8 bytes) in a single buffer
+  const frameBuffer = Buffer.allocUnsafe(28 + numPoints * 8);
+  frameBuffer.writeUInt32LE(numPoints, 0);
+  frameBuffer.writeFloatLE(frameMinX, 4);
+  frameBuffer.writeFloatLE(frameMaxX, 8);
+  frameBuffer.writeFloatLE(frameMinY, 12);
+  frameBuffer.writeFloatLE(frameMaxY, 16);
+  frameBuffer.writeFloatLE(frameMinZ, 20);
+  frameBuffer.writeFloatLE(frameMaxZ, 24);
   
-  // Frame Points: numPoints * 8 bytes
-  const pointsBuffer = Buffer.alloc(numPoints * 8);
-  
-  let offset = 0;
+  let offset = 28;
   for (let j = 0; j < framePoints.length; j += 4) {
     const qX = Math.round(((framePoints[j] - frameMinX) / rangeX) * 65535);
     const qY = Math.round(((framePoints[j + 1] - frameMinY) / rangeY) * 65535);
     const qZ = Math.round(((framePoints[j + 2] - frameMinZ) / rangeZ) * 65535);
     const intensity = Math.min(255, Math.max(0, Math.round(framePoints[j + 3])));
     
-    pointsBuffer.writeUInt16LE(Math.max(0, Math.min(65535, qX)), offset);
-    pointsBuffer.writeUInt16LE(Math.max(0, Math.min(65535, qY)), offset + 2);
-    pointsBuffer.writeUInt16LE(Math.max(0, Math.min(65535, qZ)), offset + 4);
-    pointsBuffer.writeUInt8(intensity, offset + 6);
-    pointsBuffer.writeUInt8(0, offset + 7);
+    frameBuffer.writeUInt16LE(Math.max(0, Math.min(65535, qX)), offset);
+    frameBuffer.writeUInt16LE(Math.max(0, Math.min(65535, qY)), offset + 2);
+    frameBuffer.writeUInt16LE(Math.max(0, Math.min(65535, qZ)), offset + 4);
+    frameBuffer.writeUInt8(intensity, offset + 6);
+    frameBuffer.writeUInt8(0, offset + 7);
     
     offset += 8;
   }
   
-  outStream.write(Buffer.concat([frameHeader, pointsBuffer]));
+  outStream.write(frameBuffer);
   
   if (i % 500 === 0) {
     console.log(`Processed ${i} / ${files.length} frames...`);
@@ -122,18 +118,20 @@ outStream.on('finish', () => {
   console.log(`Per-frame quantized binary generated: ${(rawQuantizedSize / 1024 / 1024).toFixed(2)} MB`);
   console.log(`Total Points: ${totalPoints}`);
   
-  console.log('Compressing with Brotli (frames_quantized.bin.br)...');
-  const rawBuffer = fs.readFileSync(outputFilePath);
-  const compressed = zlib.brotliCompressSync(rawBuffer, {
-    params: {
-      [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
-    }
-  });
-  
-  const compressedFilePath = path.join(outDir, 'frames_quantized.bin.br');
-  fs.writeFileSync(compressedFilePath, compressed);
-  const compressedSize = fs.statSync(compressedFilePath).size;
-  
-  console.log(`Brotli compressed binary saved: ${(compressedSize / 1024 / 1024).toFixed(2)} MB`);
+  if (process.argv.includes('--brotli')) {
+    console.log('Compressing with Brotli (frames_quantized.bin.br)...');
+    const rawBuffer = fs.readFileSync(outputFilePath);
+    const compressed = zlib.brotliCompressSync(rawBuffer, {
+      params: {
+        [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+      }
+    });
+    
+    const compressedFilePath = path.join(outDir, 'frames_quantized.bin.br');
+    fs.writeFileSync(compressedFilePath, compressed);
+    const compressedSize = fs.statSync(compressedFilePath).size;
+    
+    console.log(`Brotli compressed binary saved: ${(compressedSize / 1024 / 1024).toFixed(2)} MB`);
+  }
   console.log('Conversion complete!');
 });

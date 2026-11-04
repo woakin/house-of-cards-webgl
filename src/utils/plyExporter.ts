@@ -37,8 +37,9 @@ export function exportToPLY({ positions, intensities, numPoints, colors, frameIn
   let currentChunk = '';
 
   for (let i = 0; i < numPoints; i++) {
-    const px = Math.round(positions[i * 3] * 10000) / 10000;
-    const py = Math.round(positions[i * 3 + 1] * 10000) / 10000;
+    // Apply the same 180-deg Z rotation (rotation=[0, 0, Math.PI]) as the 3D scene so exported models are right-side up
+    const px = -Math.round(positions[i * 3] * 10000) / 10000;
+    const py = -Math.round(positions[i * 3 + 1] * 10000) / 10000;
     const pz = Math.round(positions[i * 3 + 2] * 10000) / 10000;
     const rawZ = positions[i * 3 + 2];
     const intensity = intensities[i] || 0;
@@ -52,7 +53,8 @@ export function exportToPLY({ positions, intensities, numPoints, colors, frameIn
       mixColor.copy(colB).lerp(colC, (t - 0.5) * 2.0);
     }
 
-    const brightness = normalizedInt * 0.8 + 0.5;
+    // Match fragment shader brightness curve: normalizedInt * 0.85 + 0.45
+    const brightness = normalizedInt * 0.85 + 0.45;
     const r = Math.min(255, Math.max(0, Math.round(mixColor.r * brightness * 255)));
     const g = Math.min(255, Math.max(0, Math.round(mixColor.g * brightness * 255)));
     const b = Math.min(255, Math.max(0, Math.round(mixColor.b * brightness * 255)));
@@ -76,5 +78,5 @@ export function exportToPLY({ positions, intensities, numPoints, colors, frameIn
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
