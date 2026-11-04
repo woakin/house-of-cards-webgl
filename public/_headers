@@ -5,24 +5,23 @@
   Access-Control-Allow-Origin: *
 
 # Cache static binary chunks and audio files for 1 year immutable
-/data/*
+/data/chunks/*.bin
   Cache-Control: public, max-age=31536000, immutable
-  Access-Control-Allow-Origin: *
 
-# Manifest file MUST revalidate immediately upon deploy (placed after /data/* to take precedence)
+/data/*.mp3
+  Cache-Control: public, max-age=31536000, immutable
+
+# Manifest file MUST revalidate immediately upon deploy
 /data/chunks/manifest.json
   Cache-Control: public, max-age=0, must-revalidate
-  Access-Control-Allow-Origin: *
 
 # Cache static JS, CSS, images
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
-  Access-Control-Allow-Origin: *
 
 # HTML documents & root path (never cache stale HTML)
 /
   Cache-Control: public, max-age=0, must-revalidate
-  Access-Control-Allow-Origin: *
+
 /index.html
   Cache-Control: public, max-age=0, must-revalidate
-  Access-Control-Allow-Origin: *
